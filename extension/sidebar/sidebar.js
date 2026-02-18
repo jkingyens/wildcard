@@ -3,6 +3,171 @@
  * Manages collection list and nested detail view with schema/entry management
  */
 
+// Real-world SQLite schemas from popular open source apps
+const SCHEMA_PRESETS = {
+    buku: `-- buku: command-line bookmark manager
+-- https://github.com/jarun/buku
+CREATE TABLE bookmarks (
+  id        INTEGER PRIMARY KEY,
+  URL       TEXT NOT NULL UNIQUE,
+  metadata  TEXT DEFAULT '',
+  tags      TEXT DEFAULT ',',
+  desc      TEXT DEFAULT '',
+  flags     INTEGER DEFAULT 0
+);
+
+CREATE TABLE tag (
+  id    INTEGER PRIMARY KEY,
+  name  TEXT NOT NULL UNIQUE COLLATE NOCASE
+);`,
+
+    newsboat: `-- newsboat: terminal RSS/Atom feed reader
+-- https://github.com/newsboat/newsboat
+CREATE TABLE rss_feed (
+  rssurl       TEXT NOT NULL PRIMARY KEY,
+  url          TEXT NOT NULL,
+  title        TEXT NOT NULL DEFAULT '',
+  lastmodified INTEGER NOT NULL DEFAULT 0,
+  is_rtl       INTEGER NOT NULL DEFAULT 0,
+  etag         TEXT NOT NULL DEFAULT ''
+);
+
+CREATE TABLE rss_item (
+  id          INTEGER PRIMARY KEY AUTOINCREMENT,
+  guid        TEXT NOT NULL,
+  title       TEXT NOT NULL,
+  author      TEXT NOT NULL,
+  url         TEXT NOT NULL,
+  feedurl     TEXT NOT NULL,
+  pubdate     INTEGER NOT NULL,
+  content     TEXT NOT NULL,
+  unread      INTEGER NOT NULL DEFAULT 1,
+  enclosure_url  TEXT,
+  enclosure_type TEXT,
+  enqueued    INTEGER NOT NULL DEFAULT 0,
+  flags       TEXT,
+  deleted     INTEGER NOT NULL DEFAULT 0,
+  base        TEXT DEFAULT NULL
+);`,
+
+    zotero: `-- zotero: reference manager (simplified core tables)
+-- https://github.com/zotero/zotero
+CREATE TABLE items (
+  itemID        INTEGER PRIMARY KEY,
+  itemTypeID    INTEGER NOT NULL,
+  dateAdded     TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  dateModified  TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  clientDateModified TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  libraryID     INTEGER NOT NULL,
+  key           TEXT NOT NULL,
+  version       INTEGER NOT NULL DEFAULT 0,
+  synced        INTEGER NOT NULL DEFAULT 0
+);
+
+CREATE TABLE creators (
+  creatorID   INTEGER PRIMARY KEY,
+  firstName   TEXT DEFAULT '',
+  lastName    TEXT DEFAULT '',
+  fieldMode   INTEGER DEFAULT 0
+);
+
+CREATE TABLE itemCreators (
+  itemID      INTEGER NOT NULL,
+  creatorID   INTEGER NOT NULL,
+  creatorTypeID INTEGER NOT NULL DEFAULT 1,
+  orderIndex  INTEGER NOT NULL DEFAULT 0,
+  PRIMARY KEY (itemID, creatorID, creatorTypeID)
+);
+
+CREATE TABLE tags (
+  tagID   INTEGER PRIMARY KEY,
+  name    TEXT NOT NULL COLLATE NOCASE
+);
+
+CREATE TABLE itemTags (
+  itemID  INTEGER NOT NULL,
+  tagID   INTEGER NOT NULL,
+  type    INTEGER NOT NULL DEFAULT 0,
+  PRIMARY KEY (itemID, tagID)
+);`,
+
+    taskwarrior: `-- taskwarrior: command-line task manager (export schema)
+-- https://github.com/GothenburgBitFactory/taskwarrior
+CREATE TABLE tasks (
+  uuid        TEXT PRIMARY KEY,
+  status      TEXT NOT NULL DEFAULT 'pending',
+  description TEXT NOT NULL,
+  entry       TEXT,
+  modified    TEXT,
+  due         TEXT,
+  until       TEXT,
+  wait        TEXT,
+  scheduled   TEXT,
+  start       TEXT,
+  end         TEXT,
+  priority    TEXT,
+  project     TEXT,
+  recur       TEXT,
+  mask        TEXT,
+  imask       INTEGER,
+  parent      TEXT,
+  urgency     REAL DEFAULT 0.0
+);
+
+CREATE TABLE task_tags (
+  task_uuid  TEXT NOT NULL,
+  tag        TEXT NOT NULL,
+  PRIMARY KEY (task_uuid, tag)
+);
+
+CREATE TABLE task_annotations (
+  id         INTEGER PRIMARY KEY AUTOINCREMENT,
+  task_uuid  TEXT NOT NULL,
+  entry      TEXT NOT NULL,
+  description TEXT NOT NULL
+);`,
+
+    miniflux: `-- miniflux: minimalist feed reader (simplified)
+-- https://github.com/miniflux/v2
+CREATE TABLE feeds (
+  id                 INTEGER PRIMARY KEY AUTOINCREMENT,
+  user_id            INTEGER NOT NULL,
+  feed_url           TEXT NOT NULL,
+  site_url           TEXT NOT NULL DEFAULT '',
+  title              TEXT NOT NULL DEFAULT '',
+  checked_at         TEXT,
+  next_check_at      TEXT,
+  etag_header        TEXT NOT NULL DEFAULT '',
+  last_modified_header TEXT NOT NULL DEFAULT '',
+  parsing_error_msg  TEXT NOT NULL DEFAULT '',
+  parsing_error_count INTEGER NOT NULL DEFAULT 0,
+  scraper_rules      TEXT NOT NULL DEFAULT '',
+  rewrite_rules      TEXT NOT NULL DEFAULT '',
+  crawler            INTEGER NOT NULL DEFAULT 0,
+  category_id        INTEGER,
+  username           TEXT NOT NULL DEFAULT '',
+  password           TEXT NOT NULL DEFAULT '',
+  disabled           INTEGER NOT NULL DEFAULT 0,
+  hide_globally      INTEGER NOT NULL DEFAULT 0
+);
+
+CREATE TABLE entries (
+  id          INTEGER PRIMARY KEY AUTOINCREMENT,
+  user_id     INTEGER NOT NULL,
+  feed_id     INTEGER NOT NULL,
+  hash        TEXT NOT NULL,
+  published_at TEXT NOT NULL,
+  title       TEXT NOT NULL,
+  url         TEXT NOT NULL,
+  comments_url TEXT NOT NULL DEFAULT '',
+  author      TEXT NOT NULL DEFAULT '',
+  content     TEXT NOT NULL DEFAULT '',
+  status      TEXT NOT NULL DEFAULT 'unread',
+  starred     INTEGER NOT NULL DEFAULT 0,
+  reading_time INTEGER NOT NULL DEFAULT 0
+);`
+};
+
 class SidebarUI {
     constructor() {
         // Views
@@ -49,6 +214,17 @@ class SidebarUI {
         document.getElementById('modalCloseBtn').addEventListener('click', () => this.closeSchemaModal());
         this.schemaModal.addEventListener('click', (e) => {
             if (e.target === this.schemaModal) this.closeSchemaModal();
+        });
+
+        // Preset schema buttons
+        document.querySelectorAll('.preset-btn').forEach(btn => {
+            btn.addEventListener('click', () => {
+                const preset = SCHEMA_PRESETS[btn.dataset.preset];
+                if (preset) {
+                    this.schemaTextarea.value = preset;
+                    this.schemaTextarea.focus();
+                }
+            });
         });
     }
 
