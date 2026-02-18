@@ -1,0 +1,113 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>SQLite Collection Manager</title>
+  <link rel="stylesheet" href="sidebar.css">
+</head>
+
+<body>
+
+  <!-- ===== LIST VIEW ===== -->
+  <div id="listView" class="view active">
+    <header>
+      <h1>📊 SQLite Collections</h1>
+      <p class="subtitle">Manage your databases</p>
+    </header>
+
+    <div class="actions">
+      <button id="createBtn" class="btn btn-primary">
+        <span>➕</span> Create Collection
+      </button>
+      <button id="importBtn" class="btn btn-secondary">
+        <span>📥</span> Import Database
+      </button>
+    </div>
+
+    <div id="collectionsList" class="collections-list">
+      <div class="empty-state">
+        <div class="empty-icon">🗄️</div>
+        <p>No collections yet</p>
+        <p class="hint">Create a new collection or import an existing database</p>
+      </div>
+    </div>
+  </div>
+
+  <!-- ===== DETAIL VIEW ===== -->
+  <div id="detailView" class="view">
+    <header class="detail-header">
+      <button id="backBtn" class="back-btn">← Collections</button>
+      <h2 id="detailTitle" class="detail-title"></h2>
+    </header>
+
+    <!-- Schema Section -->
+    <section class="detail-section">
+      <div class="section-header">
+        <h3>🗂 Schema</h3>
+        <button id="editSchemaBtn" class="btn btn-secondary btn-sm">✏️ Edit</button>
+      </div>
+      <div id="schemaContent" class="schema-content">
+        <p class="hint">No tables defined yet.</p>
+      </div>
+    </section>
+
+    <!-- Entries Section -->
+    <section class="detail-section">
+      <div class="section-header">
+        <h3>📋 Entries</h3>
+        <span id="entryCount" class="badge">0</span>
+      </div>
+      <div id="entriesContent" class="entries-content">
+        <p class="hint">No entries yet.</p>
+      </div>
+    </section>
+
+    <!-- Collection Actions -->
+    <section class="detail-section detail-actions">
+      <button id="detailExportBtn" class="btn btn-secondary btn-sm">📤 Export</button>
+      <button id="detailSaveBtn" class="btn btn-secondary btn-sm">💾 Save Checkpoint</button>
+      <button id="detailDeleteBtn" class="btn btn-danger btn-sm">🗑️ Delete</button>
+    </section>
+  </div>
+
+  <!-- ===== SCHEMA EDIT MODAL ===== -->
+  <div id="schemaModal" class="modal-overlay hidden">
+    <div class="modal">
+      <div class="modal-header">
+        <h3>Edit Schema</h3>
+        <button id="modalCloseBtn" class="btn-icon">✕</button>
+      </div>
+      <p class="modal-hint">Enter a valid <code>CREATE TABLE</code> statement. The existing table will be replaced.</p>
+      <textarea id="schemaTextarea" class="schema-textarea" spellcheck="false"
+        placeholder="CREATE TABLE items (&#10;  id INTEGER PRIMARY KEY,&#10;  title TEXT NOT NULL,&#10;  created_at TEXT&#10;);"></textarea>
+      <div class="modal-actions">
+        <button id="modalCancelBtn" class="btn btn-secondary">Cancel</button>
+        <button id="modalSaveBtn" class="btn btn-primary">Save Schema</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Collection Item Template (list view) -->
+  <template id="collectionTemplate">
+    <div class="collection-item">
+      <div class="collection-header">
+        <h3 class="collection-name"></h3>
+        <button class="btn-icon delete-btn" title="Delete">🗑️</button>
+      </div>
+      <div class="collection-meta">
+        <span class="collection-hint">Click to view schema & entries</span>
+      </div>
+      <div class="collection-actions">
+        <button class="btn-small export-btn"><span>📤</span> Export</button>
+        <button class="btn-small save-btn"><span>💾</span> Save</button>
+        <button class="btn-small restore-btn"><span>⏮️</span> Restore</button>
+      </div>
+    </div>
+  </template>
+
+  <script src="sidebar.js"></script>
+</body>
+
+</html>
