@@ -307,17 +307,58 @@ async function handleMessage(request, sender, sendResponse) {
             case 'openTabInGroup': {
                 // Open or focus a URL inside the given tab group
                 try {
-                    const { url, groupId } = request;
-                    // Check if a tab with this URL already exists in the group
-                    const tabsInGroup = await chrome.tabs.query({ groupId });
-                    const existing = tabsInGroup.find(t => t.url === url || t.pendingUrl === url);
-                    if (existing) {
-                        await chrome.tabs.update(existing.id, { active: true });
+                    const { url, groupId, packetId } = request;
+
+                    let targetGroupId = groupId;
+                    let groupExists = false;
+                    try {
+                        if (targetGroupId !== undefined && targetGroupId !== null) {
+                            await chrome.tabGroups.get(targetGroupId);
+                            groupExists = true;
+                        }
+                    } catch (e) { /* group doesn't exist */ }
+
+                    if (groupExists) {
+                        // Check if a tab with this URL already exists in the group
+                        const tabsInGroup = await chrome.tabs.query({ groupId: targetGroupId });
+                        const existing = tabsInGroup.find(t => t.url === url || t.pendingUrl === url);
+                        if (existing) {
+                            await chrome.tabs.update(existing.id, { active: true });
+                        } else {
+                            const newTab = await chrome.tabs.create({ url, active: true });
+                            await chrome.tabs.group({ tabIds: [newTab.id], groupId: targetGroupId });
+                        }
+                        sendResponse({ success: true });
                     } else {
+                        // Group doesn't exist -> Resurrection
                         const newTab = await chrome.tabs.create({ url, active: true });
-                        await chrome.tabs.group({ tabIds: [newTab.id], groupId });
+                        targetGroupId = await chrome.tabs.group({ tabIds: [newTab.id] });
+
+                        // Attempt to get packet name
+                        let packetName = 'Packet';
+                        if (packetId) {
+                            try {
+                                const db = sqliteManager.getDatabase('packets');
+                                if (db) {
+                                    const result = db.exec(`SELECT name FROM packets WHERE rowid = ${packetId}`);
+                                    if (result.length && result[0].values.length) {
+                                        packetName = result[0].values[0][0];
+                                    }
+                                }
+                            } catch (e) { console.warn('Failed to fetch packet name for resurrection:', e); }
+                        }
+
+                        await chrome.tabGroups.update(targetGroupId, { title: packetName, color: 'blue' });
+
+                        // Update session storage
+                        if (packetId) {
+                            const { activeGroups = {} } = await chrome.storage.session.get('activeGroups');
+                            activeGroups[targetGroupId] = packetId;
+                            await chrome.storage.session.set({ activeGroups });
+                        }
+
+                        sendResponse({ success: true, newGroupId: targetGroupId });
                     }
-                    sendResponse({ success: true });
                 } catch (err) {
                     sendResponse({ success: false, error: err.message });
                 }

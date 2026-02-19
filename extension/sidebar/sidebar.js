@@ -394,8 +394,11 @@ class SidebarUI {
                         </div>
                     `;
 
-                    card.addEventListener('click', () => {
-                        this.sendMessage({ action: 'openTabInGroup', url, groupId: this.activePacketGroupId });
+                    card.addEventListener('click', async () => {
+                        const resp = await this.sendMessage({ action: 'openTabInGroup', url, groupId: this.activePacketGroupId, packetId: packet.id });
+                        if (resp && resp.success && resp.newGroupId) {
+                            this.activePacketGroupId = resp.newGroupId;
+                        }
                     });
 
                     this.packetLinkList.appendChild(card);
