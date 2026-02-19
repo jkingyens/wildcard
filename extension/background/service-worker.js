@@ -30,6 +30,99 @@ chrome.bookmarks.onMoved.addListener(syncBookmarkCache);
 chrome.bookmarks.onChildrenReordered.addListener(syncBookmarkCache);
 chrome.bookmarks.onImportEnded.addListener(syncBookmarkCache);
 
+// WasmRuntime helper for Canonical ABI encoding/decoding
+class WasmRuntime {
+    constructor() {
+        this.instance = null;
+        this.memory = null;
+    }
+    setInstance(instance) {
+        this.instance = instance;
+        this.memory = instance.exports.memory;
+    }
+    getView() {
+        if (!this.memory) throw new Error("Wasm memory not initialized");
+        return new DataView(this.memory.buffer);
+    }
+    readString(ptr, len) {
+        const bytes = new Uint8Array(this.memory.buffer, ptr, len);
+        return new TextDecoder().decode(bytes);
+    }
+    alloc(size, align) {
+        if (!this.instance || !this.instance.exports.cabi_realloc) {
+            throw new Error("WASM module missing 'cabi_realloc' export");
+        }
+        return this.instance.exports.cabi_realloc(0, 0, align, size);
+    }
+    writeString(str) {
+        const bytes = new TextEncoder().encode(str);
+        const ptr = this.alloc(bytes.length, 1);
+        const dest = new Uint8Array(this.memory.buffer, ptr, bytes.length);
+        dest.set(bytes);
+        return { ptr, len: bytes.length };
+    }
+    encodeBookmarkNode(node) {
+        const ptr = this.alloc(52, 4);
+        const idStr = this.writeString(node.id);
+        let view = this.getView();
+        view.setUint32(ptr + 0, idStr.ptr, true);
+        view.setUint32(ptr + 4, idStr.len, true);
+        if (node.parentId) {
+            const pIdStr = this.writeString(node.parentId);
+            view = this.getView();
+            view.setUint32(ptr + 8, 1, true);
+            view.setUint32(ptr + 12, pIdStr.ptr, true);
+            view.setUint32(ptr + 16, pIdStr.len, true);
+        } else {
+            this.getView().setUint32(ptr + 8, 0, true);
+        }
+        const titleStr = this.writeString(node.title || '');
+        view = this.getView();
+        view.setUint32(ptr + 20, titleStr.ptr, true);
+        view.setUint32(ptr + 24, titleStr.len, true);
+        if (node.url) {
+            const urlStr = this.writeString(node.url);
+            view = this.getView();
+            view.setUint32(ptr + 28, 1, true);
+            view.setUint32(ptr + 32, urlStr.ptr, true);
+            view.setUint32(ptr + 36, urlStr.len, true);
+        } else {
+            this.getView().setUint32(ptr + 28, 0, true);
+        }
+        if (node.children && node.children.length > 0) {
+            const childPtrs = node.children.map(c => this.encodeBookmarkNode(c));
+            const listPtr = this.alloc(childPtrs.length * 4, 4);
+            view = this.getView();
+            const listBytes = new Uint32Array(this.memory.buffer, listPtr, childPtrs.length);
+            listBytes.set(childPtrs);
+            view.setUint32(ptr + 40, 1, true);
+            view.setUint32(ptr + 44, listPtr, true);
+            view.setUint32(ptr + 48, node.children.length, true);
+        } else {
+            this.getView().setUint32(ptr + 40, 0, true);
+        }
+        return ptr;
+    }
+    encodeBookmarkList(nodes) {
+        const ptrs = nodes.map(n => this.encodeBookmarkNode(n));
+        const listPtr = this.alloc(ptrs.length * 4, 4);
+        const listBytes = new Uint32Array(this.memory.buffer, listPtr, ptrs.length);
+        listBytes.set(ptrs);
+        return { ptr: listPtr, len: ptrs.length };
+    }
+    encodeStringList(strs) {
+        const listPtr = this.alloc(strs.length * 8, 4);
+        let view = this.getView();
+        strs.forEach((s, i) => {
+            const { ptr, len } = this.writeString(s);
+            view = this.getView();
+            view.setUint32(listPtr + (i * 8), ptr, true);
+            view.setUint32(listPtr + (i * 8) + 4, len, true);
+        });
+        return { ptr: listPtr, len: strs.length };
+    }
+}
+
 // Initialize SQL.js and auto-restore all checkpoints
 async function initializeSQLite() {
     if (initialized) return sqliteManager;
@@ -362,123 +455,89 @@ async function handleMessage(request, sender, sendResponse) {
                 try {
                     const { name, data } = request.item;
                     let binaryString = atob(data);
-
-                    // Check for WASM magic word (0x00 0x61 0x73 0x6d)
-                    // If not found, and it looks like Base64 (starts with "AGFz"), try decoding again.
-                    // This handles cases where user provides Base64-encoded text as a file.
                     if (binaryString.charCodeAt(0) !== 0 && binaryString.startsWith('AGFz')) {
-                        try {
-                            binaryString = atob(binaryString);
-                        } catch (e) { /* fallback to original if not valid b64 */ }
+                        try { binaryString = atob(binaryString); } catch (e) { }
                     }
-
-
                     const bytes = new Uint8Array(binaryString.length);
                     for (let i = 0; i < binaryString.length; i++) {
                         bytes[i] = binaryString.charCodeAt(i);
                     }
-
-                    class WasmRuntime {
-                        constructor() {
-                            this.instance = null;
-                            this.memory = null;
-                        }
-                        setInstance(instance) {
-                            this.instance = instance;
-                            this.memory = instance.exports.memory;
-                        }
-                        getView() {
-                            // Always create a fresh DataView on the latest buffer
-                            return new DataView(this.memory.buffer);
-                        }
-                        readString(ptr, len) {
-                            const bytes = new Uint8Array(this.memory.buffer, ptr, len);
-                            return new TextDecoder().decode(bytes);
-                        }
-                        alloc(size, align) {
-                            if (!this.instance.exports.cabi_realloc) {
-                                throw new Error("WASM module missing 'cabi_realloc' export");
-                            }
-                            return this.instance.exports.cabi_realloc(0, 0, align, size);
-                        }
-                        writeString(str) {
-                            const bytes = new TextEncoder().encode(str);
-                            const ptr = this.alloc(bytes.length, 1);
-                            const dest = new Uint8Array(this.memory.buffer, ptr, bytes.length);
-                            dest.set(bytes);
-                            return { ptr, len: bytes.length };
-                        }
-                        encodeBookmarkNode(node) {
-                            const ptr = this.alloc(52, 4);
-
-                            const idStr = this.writeString(node.id);
-                            let view = this.getView();
-                            view.setUint32(ptr + 0, idStr.ptr, true);
-                            view.setUint32(ptr + 4, idStr.len, true);
-
-                            if (node.parentId) {
-                                const pIdStr = this.writeString(node.parentId);
-                                view = this.getView();
-                                view.setUint32(ptr + 8, 1, true);
-                                view.setUint32(ptr + 12, pIdStr.ptr, true);
-                                view.setUint32(ptr + 16, pIdStr.len, true);
-                            } else {
-                                this.getView().setUint32(ptr + 8, 0, true);
-                            }
-
-                            const titleStr = this.writeString(node.title || '');
-                            view = this.getView();
-                            view.setUint32(ptr + 20, titleStr.ptr, true);
-                            view.setUint32(ptr + 24, titleStr.len, true);
-
-                            if (node.url) {
-                                const urlStr = this.writeString(node.url);
-                                view = this.getView();
-                                view.setUint32(ptr + 28, 1, true);
-                                view.setUint32(ptr + 32, urlStr.ptr, true);
-                                view.setUint32(ptr + 36, urlStr.len, true);
-                            } else {
-                                this.getView().setUint32(ptr + 28, 0, true);
-                            }
-
-                            if (node.children && node.children.length > 0) {
-                                const childPtrs = node.children.map(c => this.encodeBookmarkNode(c));
-                                const listPtr = this.alloc(childPtrs.length * 4, 4);
-                                view = this.getView();
-                                try {
-                                    const listBytes = new Uint32Array(this.memory.buffer, listPtr, childPtrs.length);
-                                    listBytes.set(childPtrs);
-                                } catch (e) {
-                                    console.error(`[Runtime] Failed to create listBytes: ptr=${listPtr}, len=${childPtrs.length}, bufLen=${this.memory.buffer.byteLength}`);
-                                    throw e;
-                                }
-                                view.setUint32(ptr + 40, 1, true);
-                                view.setUint32(ptr + 44, listPtr, true);
-                                view.setUint32(ptr + 48, node.children.length, true);
-                            } else {
-                                this.getView().setUint32(ptr + 40, 0, true);
-                            }
-                            return ptr;
-                        }
-                        encodeBookmarkList(nodes) {
-                            const ptrs = nodes.map(n => this.encodeBookmarkNode(n));
-                            const listPtr = this.alloc(ptrs.length * 4, 4);
-                            console.log(`[Runtime] encodeBookmarkList: ptrs=${ptrs.length}, listPtr=${listPtr}, bufLen=${this.memory.buffer.byteLength}`);
-                            const listBytes = new Uint32Array(this.memory.buffer, listPtr, ptrs.length);
-                            listBytes.set(ptrs);
-                            return { ptr: listPtr, len: ptrs.length };
-                        }
-                    }
-
                     const runtime = new WasmRuntime();
-
-                    const importObject = {
-                        env: {
-                            log: (ptr, len) => console.log('WASM Log:', runtime.readString(ptr, len))
+                    const sqliteHost = {
+                        "execute": (dbNamePtr, dbNameLen, sqlPtr, sqlLen) => {
+                            const dbName = runtime.readString(dbNamePtr, dbNameLen);
+                            const sql = runtime.readString(sqlPtr, sqlLen);
+                            console.log(`[Host] sqlite.execute: db=${dbName}, sql=${sql}`);
+                            try {
+                                const db = sqliteManager.initDatabase(dbName);
+                                db.exec(sql);
+                                const changes = db.getRowsModified();
+                                sqliteManager.saveCheckpoint(dbName, chrome.storage.local).catch(console.error);
+                                const resultPtr = runtime.alloc(12, 4);
+                                const view = runtime.getView();
+                                view.setUint32(resultPtr, 0, true);
+                                view.setUint32(resultPtr + 4, changes, true);
+                                return resultPtr;
+                            } catch (e) {
+                                console.error(`[Host] sqlite.execute error:`, e);
+                                const errStr = runtime.writeString(e.message);
+                                const resultPtr = runtime.alloc(12, 4);
+                                const view = runtime.getView();
+                                view.setUint32(resultPtr, 1, true);
+                                view.setUint32(resultPtr + 4, errStr.ptr, true);
+                                view.setUint32(resultPtr + 8, errStr.len, true);
+                                return resultPtr;
+                            }
                         },
+                        "query": (dbNamePtr, dbNameLen, sqlPtr, sqlLen) => {
+                            const dbName = runtime.readString(dbNamePtr, dbNameLen);
+                            const sql = runtime.readString(sqlPtr, sqlLen);
+                            console.log(`[Host] sqlite.query: db=${dbName}, sql=${sql}`);
+                            try {
+                                const db = sqliteManager.initDatabase(dbName);
+                                const result = db.exec(sql);
+                                const columns = result.length > 0 ? result[0].columns : [];
+                                const rows = result.length > 0 ? result[0].values : [];
+                                const colEncoded = runtime.encodeStringList(columns);
+                                const rowPtrs = rows.map(r => {
+                                    const valuesEncoded = runtime.encodeStringList(r.map(v => String(v ?? '')));
+                                    const rPtr = runtime.alloc(8, 4);
+                                    const rView = runtime.getView();
+                                    rView.setUint32(rPtr, valuesEncoded.ptr, true);
+                                    rView.setUint32(rPtr + 4, valuesEncoded.len, true);
+                                    return rPtr;
+                                });
+                                const rowsListPtr = runtime.alloc(rowPtrs.length * 4, 4);
+                                const rowsListBytes = new Uint32Array(runtime.memory.buffer, rowsListPtr, rowPtrs.length);
+                                rowsListBytes.set(rowPtrs);
+                                const qrPtr = runtime.alloc(16, 4);
+                                const qrView = runtime.getView();
+                                qrView.setUint32(qrPtr, colEncoded.ptr, true);
+                                qrView.setUint32(qrPtr + 4, colEncoded.len, true);
+                                qrView.setUint32(qrPtr + 8, rowsListPtr, true);
+                                qrView.setUint32(qrPtr + 12, rowPtrs.length, true);
+                                const resultPtr = runtime.alloc(20, 4);
+                                const view = runtime.getView();
+                                view.setUint32(resultPtr, 0, true);
+                                const resultPayload = new Uint8Array(runtime.memory.buffer, resultPtr + 4, 16);
+                                const qrData = new Uint8Array(runtime.memory.buffer, qrPtr, 16);
+                                resultPayload.set(qrData);
+                                return resultPtr;
+                            } catch (e) {
+                                const errStr = runtime.writeString(e.message);
+                                const resultPtr = runtime.alloc(20, 4);
+                                const view = runtime.getView();
+                                view.setUint32(resultPtr, 1, true);
+                                view.setUint32(resultPtr + 4, errStr.ptr, true);
+                                view.setUint32(resultPtr + 8, errStr.len, true);
+                                return resultPtr;
+                            }
+                        }
+                    };
+                    const importObject = {
+                        env: { log: (ptr, len) => console.log('WASM Log:', runtime.readString(ptr, len)) },
                         "chrome:bookmarks/bookmarks": {
                             "get-tree": () => {
-                                console.log('[Host] get-tree called');
                                 try {
                                     if (!bookmarkCache) throw new Error("Cache not ready");
                                     const encoded = runtime.encodeBookmarkList(bookmarkCache);
@@ -487,10 +546,8 @@ async function handleMessage(request, sender, sendResponse) {
                                     view.setUint32(resultPtr, 0, true);
                                     view.setUint32(resultPtr + 4, encoded.ptr, true);
                                     view.setUint32(resultPtr + 8, encoded.len, true);
-                                    console.log(`[Host] get-tree success, resultPtr: ${resultPtr}, len: ${encoded.len}`);
                                     return resultPtr;
                                 } catch (e) {
-                                    console.error('[Host] get-tree error:', e.message);
                                     const errStr = runtime.writeString(e.message);
                                     const resultPtr = runtime.alloc(12, 4);
                                     const view = runtime.getView();
@@ -509,12 +566,11 @@ async function handleMessage(request, sender, sendResponse) {
                                 view.setUint32(resultPtr + 8, errStr.len, true);
                                 return resultPtr;
                             }
-                        }
+                        },
+                        "user:sqlite/sqlite": sqliteHost
                     };
-
                     const { instance } = await WebAssembly.instantiate(bytes, importObject);
                     runtime.setInstance(instance);
-
                     if (instance.exports.main) {
                         const result = instance.exports.main();
                         sendResponse({ success: true, result });

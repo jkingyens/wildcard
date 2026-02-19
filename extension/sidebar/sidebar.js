@@ -170,10 +170,6 @@ CREATE TABLE entries (
 
 class SidebarUI {
     constructor() {
-        // Views
-        this.listView = document.getElementById('listView');
-        this.detailView = document.getElementById('detailView');
-        this.constructorView = document.getElementById('constructorView');
         this.listView = document.getElementById('listView');
         this.detailView = document.getElementById('detailView');
         this.packetDetailView = document.getElementById('packetDetailView');
@@ -208,6 +204,7 @@ class SidebarUI {
 
         // Modal elements
         this.schemaModal = document.getElementById('schemaModal');
+        this.schemaTextarea = document.getElementById('schemaTextarea');
         // Packet detail view elements
         this.packetDetailTitle = document.getElementById('packetDetailTitle');
         this.packetLinkList = document.getElementById('packetLinkList');
@@ -227,12 +224,7 @@ class SidebarUI {
         // State
         this.currentCollection = null;
         this.currentSchema = [];
-        // State
-        this.currentCollection = null;
-        this.currentSchema = [];
         this.constructorItems = []; // Array of { type: 'link'|'wasm', ... }
-        this.activePacketGroupId = null;
-        this.dragSrcIndex = null;
         this.activePacketGroupId = null;
         this.dragSrcIndex = null;
 
@@ -278,11 +270,6 @@ class SidebarUI {
         document.getElementById('createBtn').addEventListener('click', () => this.createCollection());
         document.getElementById('importBtn').addEventListener('click', () => this.importDatabase());
 
-        // Detail view
-        document.getElementById('backBtn').addEventListener('click', () => this.showListView());
-        document.getElementById('editSchemaBtn').addEventListener('click', () => this.openSchemaModal());
-        document.getElementById('detailExportBtn').addEventListener('click', () => this.exportCollection(this.currentCollection));
-        document.getElementById('detailSaveBtn').addEventListener('click', () => this.saveCheckpoint(this.currentCollection));
         // Detail view
         document.getElementById('backBtn').addEventListener('click', () => this.showListView());
         document.getElementById('editSchemaBtn').addEventListener('click', () => this.openSchemaModal());

@@ -39,9 +39,9 @@ class SQLiteManager {
   /**
    * Initialize or get an existing database
    * @param {string} collectionName - Name of the collection/database
-   * @returns {Promise<Object>} Database instance
+   * @returns {Object} Database instance
    */
-  async initDatabase(collectionName) {
+  initDatabase(collectionName) {
     if (this.databases.has(collectionName)) {
       return this.databases.get(collectionName);
     }
@@ -192,7 +192,7 @@ class SQLiteManager {
     if (!db) {
       db = await this.initDatabase(PACKETS_COLLECTION);
     }
-    db.run(PACKETS_SCHEMA);
+    db.exec(PACKETS_SCHEMA);
     if (storage) {
       await this.saveCheckpoint(PACKETS_COLLECTION, storage);
     }
@@ -207,7 +207,7 @@ class SQLiteManager {
     if (!db) {
       db = await this.initDatabase(SCHEMAS_COLLECTION);
     }
-    db.run(SCHEMAS_SCHEMA);
+    db.exec(SCHEMAS_SCHEMA);
     if (storage) {
       await this.saveCheckpoint(SCHEMAS_COLLECTION, storage);
     }
@@ -222,7 +222,7 @@ class SQLiteManager {
     if (!db) {
       db = await this.initDatabase(WITS_COLLECTION);
     }
-    db.run(WITS_SCHEMA);
+    db.exec(WITS_SCHEMA);
 
     // Check for defaults
     try {
@@ -243,7 +243,27 @@ interface bookmarks {
     create: func(title: string, url: string) -> result<bookmark-node, string>;
 }`;
         // Use run with binding parameters to avoid SQL injection/escaping issues
-        db.run("INSERT INTO wits (name, wit) VALUES (?, ?)", ['chrome:bookmarks', defaultWit]);
+        db.exec("INSERT INTO wits (name, wit) VALUES (?, ?)", ['chrome:bookmarks', defaultWit]);
+      }
+
+      const checkSqlite = db.exec("SELECT rowid FROM wits WHERE name = 'user:sqlite'");
+      if (!checkSqlite.length || !checkSqlite[0].values.length) {
+        const sqliteWit = `package user:sqlite;
+
+interface sqlite {
+    record row {
+        values: list<string>
+    }
+
+    record query-result {
+        columns: list<string>,
+        rows: list<row>
+    }
+
+    execute: func(db: string, sql: string) -> result<u32, string>;
+    query: func(db: string, sql: string) -> result<query-result, string>;
+}`;
+        db.exec("INSERT INTO wits (name, wit) VALUES (?, ?)", ['user:sqlite', sqliteWit]);
       }
     } catch (e) { console.error('Error ensuring default wits:', e); }
 
@@ -367,8 +387,8 @@ interface bookmarks {
       const nameMatch = stmt.match(/CREATE\s+TABLE\s+(?:IF\s+NOT\s+EXISTS\s+)?["`']?(\w+)["`']?/i);
       if (nameMatch) {
         const tableName = nameMatch[1];
-        db.run(`DROP TABLE IF EXISTS "${tableName}"`);
-        db.run(stmt);
+        db.exec(`DROP TABLE IF EXISTS "${tableName}"`);
+        db.exec(stmt);
       }
     }
 
