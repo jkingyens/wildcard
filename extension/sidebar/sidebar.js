@@ -213,6 +213,17 @@ class SidebarUI {
         this.packetLinkList = document.getElementById('packetLinkList');
         this.packetDetailCount = document.getElementById('packetDetailCount');
 
+        // Wits view elements
+        this.witsView = document.getElementById('witsView');
+        this.witsList = document.getElementById('witsList');
+        this.witItemTemplate = document.getElementById('witItemTemplate');
+
+        // Wit editor elements
+        this.witEditorView = document.getElementById('witEditorView');
+        this.witNameInput = document.getElementById('witNameInput');
+        this.witContentInput = document.getElementById('witContentInput');
+        this.witEditorTitle = document.getElementById('witEditorTitle');
+
         // State
         this.currentCollection = null;
         this.currentSchema = [];
@@ -326,6 +337,14 @@ class SidebarUI {
                 }
             });
         });
+
+
+        // WITS views
+        document.getElementById('addWitBtn').addEventListener('click', () => this.showWitEditorView());
+        document.getElementById('witsBackBtn').addEventListener('click', () => this.showListView());
+        document.getElementById('witEditorBackBtn').addEventListener('click', () => this.showWitsView());
+        document.getElementById('witSaveBtn').addEventListener('click', () => this.saveWit());
+        document.getElementById('witDeleteBtn').addEventListener('click', () => this.deleteWit());
     }
 
     // ===== NAVIGATION =====
@@ -336,6 +355,8 @@ class SidebarUI {
         this.packetDetailView.classList.remove('active');
         this.constructorView.classList.remove('active');
         this.schemaConstructorView.classList.remove('active');
+        this.witsView.classList.remove('active');
+        this.witEditorView.classList.remove('active');
     }
 
     showListView() {
@@ -351,6 +372,145 @@ class SidebarUI {
         this.detailTitle.textContent = collectionName;
         this.detailView.classList.add('active');
         this.loadCollectionDetail(collectionName);
+    }
+
+    showWitsView() {
+        this.hideAllViews();
+        this.currentCollection = 'wits';
+        this.witsView.classList.add('active');
+        this.loadWits();
+    }
+
+    async loadWits() {
+        this.witsList.innerHTML = '<p class="hint">Loading...</p>';
+        try {
+            const db = await this.sendMessage({ action: 'executeSQL', name: 'wits', sql: 'SELECT rowid, name, wit FROM wits ORDER BY name' });
+            if (db.success) {
+                this.renderWits(db.result);
+            } else {
+                this.witsList.innerHTML = `<p class="hint error">Failed to load wits: ${db.error}</p>`;
+            }
+        } catch (e) {
+            console.error(e);
+            this.witsList.innerHTML = '<p class="hint error">Error loading wits</p>';
+        }
+    }
+
+    renderWits(rows) {
+        this.witsList.innerHTML = '';
+        if (!rows || rows.length === 0) {
+            this.witsList.innerHTML = '<p class="hint">No WIT definitions found.</p>';
+            return;
+        }
+
+        if (rows[0] && Array.isArray(rows[0].values)) {
+            // result format from exec usually: [{columns:..., values:[...]}]
+            // But my executeSQL implementation calls db.exec which returns this format.
+            // Wait, handleMessage for executeSQL returns: { success: true, result, columns }
+            // Wait, let's check service worker executeSQL.
+            // It calls db.exec. db.exec returns [{columns, values}].
+            // So rows is that array.
+            const values = rows[0].values;
+            values.forEach(([id, name, wit]) => {
+                const clone = this.witItemTemplate.content.cloneNode(true);
+                clone.querySelector('.collection-name').textContent = name;
+                clone.querySelector('.collection-item').addEventListener('click', () => {
+                    this.showWitEditorView({ id, name, wit });
+                });
+                this.witsList.appendChild(clone);
+            });
+        }
+    }
+
+    showWitEditorView(wit = null) {
+        this.hideAllViews();
+        this.witEditorView.classList.add('active');
+
+        if (wit) {
+            this.currentWitId = wit.id;
+            this.witEditorTitle.textContent = 'Edit WIT';
+            this.witNameInput.value = wit.name;
+            this.witNameInput.disabled = (wit.name === 'chrome:bookmarks'); // System WITs read-only name?
+            this.witContentInput.value = wit.wit;
+            this.witNameInput.dataset.originalName = wit.name;
+        } else {
+            this.currentWitId = null;
+            this.witEditorTitle.textContent = 'New WIT';
+            this.witNameInput.value = '';
+            this.witNameInput.disabled = false;
+            this.witContentInput.value = '';
+            delete this.witNameInput.dataset.originalName;
+        }
+    }
+
+    async saveWit() {
+        const name = this.witNameInput.value.trim();
+        const wit = this.witContentInput.value;
+
+        if (!name) return alert('Name is required');
+
+        const btn = document.getElementById('witSaveBtn');
+        const originalText = btn.textContent;
+        btn.disabled = true;
+        btn.textContent = 'Saving...';
+
+        try {
+            let sql;
+            let params;
+            if (this.currentWitId) {
+                sql = "UPDATE wits SET name = ?, wit = ? WHERE rowid = ?";
+                params = [name, wit, this.currentWitId];
+            } else {
+                sql = "INSERT INTO wits (name, wit) VALUES (?, ?)";
+                params = [name, wit];
+            }
+
+            // We need a way to execute with params. 'executeSQL' in SW calls db.exec(sql). Use proper escaping or add bind support?
+            // SW executeSQL: db.exec(request.sql).
+            // It doesn't support params! This is dangerous if names have quotes.
+            // I should update SW to support bind params or handle escaping here.
+            // For now, I'll escape single quotes.
+            const esc = str => str.replace(/'/g, "''");
+            if (this.currentWitId) {
+                sql = `UPDATE wits SET name = '${esc(name)}', wit = '${esc(wit)}' WHERE rowid = ${this.currentWitId}`;
+            } else {
+                sql = `INSERT INTO wits (name, wit) VALUES ('${esc(name)}', '${esc(wit)}')`;
+            }
+
+            const resp = await this.sendMessage({ action: 'executeSQL', name: 'wits', sql });
+            if (resp.success) {
+                // Checkpoint
+                await this.sendMessage({ action: 'saveCheckpoint', name: 'wits' });
+                this.showWitsView();
+            } else {
+                alert('Failed to save: ' + resp.error);
+            }
+        } catch (e) {
+            console.error(e);
+            alert('Error saving WIT');
+        } finally {
+            btn.disabled = false;
+            btn.textContent = originalText;
+        }
+    }
+
+    async deleteWit() {
+        if (!this.currentWitId) return;
+        const name = this.witNameInput.value;
+        if (name === 'chrome:bookmarks') return alert('Cannot delete system WIT');
+
+        if (!confirm(`Delete WIT "${name}"?`)) return;
+
+        try {
+            const sql = `DELETE FROM wits WHERE rowid = ${this.currentWitId}`;
+            const resp = await this.sendMessage({ action: 'executeSQL', name: 'wits', sql });
+            if (resp.success) {
+                await this.sendMessage({ action: 'saveCheckpoint', name: 'wits' });
+                this.showWitsView();
+            } else {
+                alert('Failed to delete: ' + resp.error);
+            }
+        } catch (e) { console.error(e); alert('Error deleting'); }
     }
 
     showPacketDetailView(packet) {
@@ -494,8 +654,10 @@ class SidebarUI {
 
         this.collectionsList.innerHTML = '';
 
-        // System collections first (packets, then schemas), then alphabetical
+        // System collections first (wits, then packets, then schemas), then alphabetical
         const sorted = collections.sort((a, b) => {
+            if (a === 'wits') return -1;
+            if (b === 'wits') return 1;
             if (a === 'packets') return -1;
             if (b === 'packets') return 1;
             if (a === 'schemas') return -1;
@@ -512,9 +674,11 @@ class SidebarUI {
     createCollectionItem(name) {
         const clone = this.template.content.cloneNode(true);
 
-        clone.querySelector('.collection-name').textContent = name;
+        const nameEl = clone.querySelector('.collection-name');
+        nameEl.textContent = name;
+        nameEl.setAttribute('data-name', name);
 
-        if (name === 'packets' || name === 'schemas') {
+        if (name === 'packets' || name === 'schemas' || name === 'wits') {
             clone.querySelector('.collection-item').classList.add('system-collection');
             const deleteBtn = clone.querySelector('.delete-btn');
             if (deleteBtn) {
@@ -529,7 +693,11 @@ class SidebarUI {
         header.addEventListener('click', (e) => {
             // Don't navigate if delete button was clicked
             if (!e.target.closest('.delete-btn')) {
-                this.showDetailView(name);
+                if (name === 'wits') {
+                    this.showWitsView();
+                } else {
+                    this.showDetailView(name);
+                }
             }
         });
 

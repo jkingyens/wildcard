@@ -210,6 +210,56 @@
     </div>
   </div>
 
+  <!-- ===== WITS VIEW ===== -->
+  <div id="witsView" class="view">
+    <header class="detail-header">
+      <button id="witsBackBtn" class="back-btn">← Collections</button>
+      <h2 class="detail-title">WIT Definitions</h2>
+    </header>
+    <div class="actions">
+      <button id="addWitBtn" class="btn btn-primary full-width"><span>➕</span> Add WIT</button>
+    </div>
+    <div id="witsList" class="collections-list">
+      <!-- WIT items go here -->
+    </div>
+  </div>
+
+  <!-- ===== WIT EDITOR VIEW ===== -->
+  <div id="witEditorView" class="view">
+    <header class="detail-header">
+      <button id="witEditorBackBtn" class="back-btn">← WITs</button>
+      <h2 id="witEditorTitle" class="detail-title">Edit WIT</h2>
+    </header>
+    <div class="constructor-body">
+      <div class="form-group">
+        <label>Name (e.g., package:name)</label>
+        <input type="text" id="witNameInput" placeholder="chrome:bookmarks" class="form-input"
+          style="width:100%; margin-bottom:10px; padding:8px;">
+      </div>
+      <div class="form-group" style="flex:1; display:flex; flex-direction:column;">
+        <label>WIT Definition</label>
+        <textarea id="witContentInput" class="schema-textarea" placeholder="package name:namespace; interface ..."
+          spellcheck="false"></textarea>
+      </div>
+      <div class="constructor-actions">
+        <button id="witDeleteBtn" class="btn btn-danger">🗑️ Delete</button>
+        <button id="witSaveBtn" class="btn btn-primary" style="flex:2;">💾 Save WIT</button>
+      </div>
+    </div>
+  </div>
+
+  <template id="witItemTemplate">
+    <div class="collection-item">
+      <div class="collection-header">
+        <span class="collection-icon">📜</span>
+        <span class="collection-name">Name</span>
+      </div>
+      <div class="collection-actions">
+        <span class="collection-arrow" style="opacity:0.5;">›</span>
+      </div>
+    </div>
+  </template>
+
   <script src="sidebar.js"></script>
 </body>
 

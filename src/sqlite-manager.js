@@ -3,8 +3,8 @@
  * Provides import/export and save/restore checkpoint functionality
  */
 
-export const PACKETS_COLLECTION = 'packets';
-export const PACKETS_SCHEMA = `
+const PACKETS_COLLECTION = 'packets';
+const PACKETS_SCHEMA = `
 CREATE TABLE IF NOT EXISTS packets (
   id      INTEGER PRIMARY KEY AUTOINCREMENT,
   name    TEXT NOT NULL,
@@ -12,8 +12,8 @@ CREATE TABLE IF NOT EXISTS packets (
   created TEXT NOT NULL DEFAULT (datetime('now'))
 );`;
 
-export const SCHEMAS_COLLECTION = 'schemas';
-export const SCHEMAS_SCHEMA = `
+const SCHEMAS_COLLECTION = 'schemas';
+const SCHEMAS_SCHEMA = `
 CREATE TABLE IF NOT EXISTS schemas (
   id      INTEGER PRIMARY KEY AUTOINCREMENT,
   name    TEXT NOT NULL,
@@ -21,7 +21,16 @@ CREATE TABLE IF NOT EXISTS schemas (
   created TEXT NOT NULL DEFAULT (datetime('now'))
 );`;
 
-export class SQLiteManager {
+const WITS_COLLECTION = 'wits';
+const WITS_SCHEMA = `
+CREATE TABLE IF NOT EXISTS wits (
+  id      INTEGER PRIMARY KEY AUTOINCREMENT,
+  name    TEXT NOT NULL,
+  wit     TEXT NOT NULL,
+  created TEXT NOT NULL DEFAULT (datetime('now'))
+);`;
+
+class SQLiteManager {
   constructor(SQL) {
     this.SQL = SQL;
     this.databases = new Map(); // collectionName -> db instance
@@ -205,6 +214,45 @@ export class SQLiteManager {
   }
 
   /**
+   * Ensure the 'wits' system collection exists with the correct schema and default entry
+   * @param {Object} storage - Storage interface
+   */
+  async ensureWitsCollection(storage) {
+    let db = this.databases.get(WITS_COLLECTION);
+    if (!db) {
+      db = await this.initDatabase(WITS_COLLECTION);
+    }
+    db.run(WITS_SCHEMA);
+
+    // Check for defaults
+    try {
+      const check = db.exec("SELECT rowid FROM wits WHERE name = 'chrome:bookmarks'");
+      if (!check.length || !check[0].values.length) {
+        const defaultWit = `package chrome:bookmarks;
+
+interface bookmarks {
+    record bookmark-node {
+        id: string,
+        parent-id: option<string>,
+        title: string,
+        url: option<string>,
+        children: option<list<bookmark-node>>,
+    }
+    
+    get-tree: func() -> result<list<bookmark-node>, string>;
+    create: func(title: string, url: string) -> result<bookmark-node, string>;
+}`;
+        // Use run with binding parameters to avoid SQL injection/escaping issues
+        db.run("INSERT INTO wits (name, wit) VALUES (?, ?)", ['chrome:bookmarks', defaultWit]);
+      }
+    } catch (e) { console.error('Error ensuring default wits:', e); }
+
+    if (storage) {
+      await this.saveCheckpoint(WITS_COLLECTION, storage);
+    }
+  }
+
+  /**
    * List all active collections
    * @returns {Array<string>} Array of collection names
    */
@@ -253,7 +301,7 @@ export class SQLiteManager {
     if (!db) throw new Error(`Database '${collectionName}' not found`);
 
     const result = db.exec(
-      `SELECT name, sql FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%' ORDER BY name`
+      `SELECT name, sql FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%' ORDER BY name`
     );
     if (!result.length) return [];
     return result[0].values.map(([name, sql]) => ({ name, sql }));
@@ -355,4 +403,6 @@ if (typeof self !== 'undefined') {
   self.SQLiteManager = SQLiteManager;
   self.PACKETS_COLLECTION = PACKETS_COLLECTION;
   self.PACKETS_SCHEMA = PACKETS_SCHEMA;
+  self.WITS_COLLECTION = WITS_COLLECTION;
+  self.WITS_SCHEMA = WITS_SCHEMA;
 }

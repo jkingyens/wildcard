@@ -525,8 +525,18 @@ h1 {
   background: linear-gradient(to right, #f8fafc 0%, #ffffff 100%);
 }
 
-.system-collection .collection-name::before {
+.system-collection .collection-name[data-name="packets"]::before {
   content: '🎒 ';
+  font-size: 14px;
+}
+
+.system-collection .collection-name[data-name="schemas"]::before {
+  content: '📁 ';
+  font-size: 14px;
+}
+
+.system-collection .collection-name[data-name="wits"]::before {
+  content: '📜 ';
   font-size: 14px;
 }
 
@@ -610,6 +620,7 @@ h1 {
   margin-left: 6px;
   color: var(--text-muted);
 }
+
 /* ===== CONSTRUCTOR VIEW ===== */
 .constructor-body {
   display: flex;
@@ -838,7 +849,7 @@ h1 {
 .schema-picker-overlay {
   position: fixed;
   inset: 0;
-  background: rgba(0,0,0,0.45);
+  background: rgba(0, 0, 0, 0.45);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -858,7 +869,7 @@ h1 {
   display: flex;
   flex-direction: column;
   overflow: hidden;
-  box-shadow: 0 8px 32px rgba(0,0,0,0.25);
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.25);
 }
 
 .schema-picker-header {

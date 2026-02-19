@@ -29,6 +29,7 @@ async function initializeSQLite() {
         }
         await sqliteManager.ensurePacketsCollection(chrome.storage.local);
         await sqliteManager.ensureSchemasCollection(chrome.storage.local);
+        await sqliteManager.ensureWitsCollection(chrome.storage.local);
     } catch (error) {
         console.error('Failed to auto-restore checkpoints:', error);
     }
