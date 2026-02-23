@@ -1,0 +1,12 @@
+{
+    "manifest_version": 3,
+    "name": "wasi-zigc WebAssembly Compiler",
+    "version": "0.1.0",
+    "description": "Run the Zig compiler in your browser!",
+    "action": {
+        "default_popup": "index.html"
+    },
+    "content_security_policy": {
+        "extension_pages": "script-src 'self' 'wasm-unsafe-eval'; object-src 'self'"
+    }
+}

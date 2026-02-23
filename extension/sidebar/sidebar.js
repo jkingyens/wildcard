@@ -2,6 +2,7 @@
  * Sidebar UI Controller
  * Manages collection list and nested detail view with schema/entry management
  */
+import { compileZigCode } from './zig-compiler.js';
 
 // Real-world SQLite schemas from popular open source apps
 const SCHEMA_PRESETS = {
@@ -175,10 +176,20 @@ class SidebarUI {
         this.packetDetailView = document.getElementById('packetDetailView');
         this.constructorView = document.getElementById('constructorView');
         this.schemaConstructorView = document.getElementById('schemaConstructorView');
+        this.settingsView = document.getElementById('settingsView');
 
         // List view elements
         this.collectionsList = document.getElementById('collectionsList');
         this.template = document.getElementById('collectionTemplate');
+        this.settingsBtn = document.getElementById('settingsBtn');
+
+        // Settings view elements
+        this.geminiApiKeyInput = document.getElementById('geminiApiKeyInput');
+        this.geminiModelSelect = document.getElementById('geminiModelSelect');
+        this.fetchModelsBtn = document.getElementById('fetchModelsBtn');
+        this.modelFetchStatus = document.getElementById('modelFetchStatus');
+        this.settingsBackBtn = document.getElementById('settingsBackBtn');
+        this.saveSettingsBtn = document.getElementById('saveSettingsBtn');
 
         // Detail view elements
         this.detailTitle = document.getElementById('detailTitle');
@@ -221,16 +232,30 @@ class SidebarUI {
         this.witContentInput = document.getElementById('witContentInput');
         this.witEditorTitle = document.getElementById('witEditorTitle');
 
+        // AI prompt modal elements
+        this.aiPromptModal = document.getElementById('aiPromptModal');
+        this.aiPromptTextarea = document.getElementById('aiPromptTextarea');
+        this.aiStatus = document.getElementById('aiStatus');
+        this.aiStatusText = document.getElementById('aiStatusText');
+        this.aiGenerateBtn = document.getElementById('aiGenerateBtn');
+        this.aiGenerateWasmBtn = document.getElementById('aiGenerateWasmBtn');
+        this.aiExecutionOutput = document.getElementById('aiExecutionOutput');
+        this.aiLogContent = document.getElementById('aiLogContent');
+        this.aiResultValue = document.getElementById('aiResultValue');
+
         // State
         this.currentCollection = null;
         this.currentSchema = [];
         this.constructorItems = []; // Array of { type: 'link'|'wasm', ... }
         this.activePacketGroupId = null;
         this.dragSrcIndex = null;
+        this.geminiApiKey = '';
+        this.geminiModel = '';
 
         this.setupEventListeners();
         this.setupMessageListener();
         this.loadCollections();
+        this.loadSettings();
         this.checkActivePacket(); // check if we opened inside a packet group
     }
 
@@ -269,6 +294,12 @@ class SidebarUI {
         // List view
         document.getElementById('createBtn').addEventListener('click', () => this.createCollection());
         document.getElementById('importBtn').addEventListener('click', () => this.importDatabase());
+        this.settingsBtn.addEventListener('click', () => this.showSettingsView());
+
+        // Settings view
+        this.settingsBackBtn.addEventListener('click', () => this.showListView());
+        this.saveSettingsBtn.addEventListener('click', () => this.saveSettings());
+        this.fetchModelsBtn.addEventListener('click', () => this.fetchAvailableModels());
 
         // Detail view
         document.getElementById('backBtn').addEventListener('click', () => this.showListView());
@@ -332,6 +363,12 @@ class SidebarUI {
         document.getElementById('witEditorBackBtn').addEventListener('click', () => this.showWitsView());
         document.getElementById('witSaveBtn').addEventListener('click', () => this.saveWit());
         document.getElementById('witDeleteBtn').addEventListener('click', () => this.deleteWit());
+
+        // AI Prompt Modal
+        document.getElementById('aiGenerateWasmBtn').addEventListener('click', () => this.openAiPromptModal());
+        document.getElementById('aiModalCloseBtn').addEventListener('click', () => this.closeAiPromptModal());
+        document.getElementById('aiCancelBtn').addEventListener('click', () => this.closeAiPromptModal());
+        this.aiGenerateBtn.addEventListener('click', () => this.generateWasmWithAi());
     }
 
     // ===== NAVIGATION =====
@@ -344,6 +381,7 @@ class SidebarUI {
         this.schemaConstructorView.classList.remove('active');
         this.witsView.classList.remove('active');
         this.witEditorView.classList.remove('active');
+        this.settingsView.classList.remove('active');
     }
 
     showListView() {
@@ -1464,6 +1502,308 @@ class SidebarUI {
             notification.style.animation = 'slideOut 0.25s ease-out';
             setTimeout(() => notification.remove(), 250);
         }, 3000);
+    }
+    showSettingsView() {
+        this.hideAllViews();
+        this.geminiApiKeyInput.value = this.geminiApiKey;
+        this.settingsView.classList.add('active');
+        this.renderModelSelect();
+    }
+
+    renderModelSelect() {
+        // Only keep the 'Select a model...' option if no models are fetched
+        const models = JSON.parse(localStorage.getItem('geminiAvailableModels') || '[]');
+        this.geminiModelSelect.innerHTML = '<option value="">Select a model...</option>';
+
+        models.forEach(model => {
+            const option = document.createElement('option');
+            option.value = model.name; // e.g. "models/gemini-1.5-pro"
+            option.textContent = model.displayName || model.name;
+            if (model.name === this.geminiModel) {
+                option.selected = true;
+            }
+            this.geminiModelSelect.appendChild(option);
+        });
+    }
+
+    async saveSettings() {
+        const apiKey = this.geminiApiKeyInput.value.trim();
+        const model = this.geminiModelSelect.value;
+        this.geminiApiKey = apiKey;
+        this.geminiModel = model;
+        await chrome.storage.local.set({
+            geminiApiKey: apiKey,
+            geminiModel: model
+        });
+        this.checkAiFeatureAvailability();
+        this.showListView();
+    }
+
+    async loadSettings() {
+        const data = await chrome.storage.local.get(['geminiApiKey', 'geminiModel']);
+        this.geminiApiKey = data.geminiApiKey || '';
+        this.geminiModel = data.geminiModel || '';
+        this.checkAiFeatureAvailability();
+    }
+
+    async fetchAvailableModels() {
+        const apiKey = this.geminiApiKeyInput.value.trim();
+        if (!apiKey) {
+            this.modelFetchStatus.textContent = 'Please enter an API key first.';
+            return;
+        }
+
+        this.modelFetchStatus.textContent = 'Fetching models...';
+        this.fetchModelsBtn.disabled = true;
+
+        try {
+            const url = `https://generativelanguage.googleapis.com/v1beta/models?key=${apiKey}`;
+            const response = await fetch(url);
+
+            if (!response.ok) {
+                const err = await response.json();
+                throw new Error(err.error?.message || 'Failed to fetch models');
+            }
+
+            const data = await response.json();
+            // Filter for models that support generateContent
+            const models = (data.models || []).filter(m => m.supportedGenerationMethods.includes('generateContent'));
+
+            localStorage.setItem('geminiAvailableModels', JSON.stringify(models));
+            this.renderModelSelect();
+            this.modelFetchStatus.textContent = `Found ${models.length} models.`;
+        } catch (error) {
+            console.error('Failed to fetch models:', error);
+            this.modelFetchStatus.textContent = 'Error: ' + error.message;
+        } finally {
+            this.fetchModelsBtn.disabled = false;
+        }
+    }
+
+    checkAiFeatureAvailability() {
+        if (this.geminiApiKey) {
+            this.aiGenerateWasmBtn.classList.remove('hidden');
+        } else {
+            this.aiGenerateWasmBtn.classList.add('hidden');
+        }
+    }
+
+    openAiPromptModal() {
+        this.aiPromptModal.classList.remove('hidden');
+        this.aiPromptTextarea.value = '';
+        this.aiPromptTextarea.focus();
+        this.aiStatus.classList.add('hidden');
+        this.aiExecutionOutput.classList.add('hidden');
+        this.aiGenerateBtn.disabled = false;
+    }
+
+    closeAiPromptModal() {
+        this.aiPromptModal.classList.add('hidden');
+    }
+
+    async generateWasmWithAi() {
+        const prompt = this.aiPromptTextarea.value.trim();
+        if (!prompt) return;
+
+        this.aiStatus.classList.remove('hidden');
+        this.aiStatusText.textContent = 'Gathering context...';
+        this.aiGenerateBtn.disabled = true;
+
+        try {
+            // 1. Get WIT context
+            const wits = await this.getWitsContext();
+
+            this.aiStatusText.textContent = 'Calling Gemini...';
+            // 2. Call Gemini API
+            const zigCode = await this.callGeminiApi(prompt, wits);
+
+            // 3. Compile Zig to WASM
+            if (typeof compileZigCode === 'undefined') {
+                throw new Error('Zig compiler not loaded');
+            }
+            const wasmBytes = await compileZigCode(zigCode, (status) => {
+                this.aiStatusText.textContent = status;
+            });
+
+            // 4. Test execution
+            this.aiStatusText.textContent = 'Executing WASM...';
+            this.aiLogContent.textContent = '';
+            const base64 = this.arrayBufferToBase64(wasmBytes);
+            const execResult = await chrome.runtime.sendMessage({
+                action: 'runWasmPacketItem',
+                bytes: base64
+            });
+
+            this.aiStatus.classList.add('hidden');
+            this.aiExecutionOutput.classList.remove('hidden');
+
+            if (execResult.success) {
+                this.aiResultValue.textContent = execResult.result;
+                this.aiResultValue.style.color = '#10b981';
+            } else {
+                this.aiResultValue.textContent = 'Error: ' + execResult.error;
+                this.aiResultValue.style.color = '#ef4444';
+            }
+
+            if (execResult.logs && execResult.logs.length > 0) {
+                this.aiLogContent.textContent = execResult.logs.join('\n');
+            } else {
+                this.aiLogContent.textContent = 'No logs produced.';
+            }
+
+            // 5. Add to constructor
+            this.constructorItems.push({
+                type: 'wasm',
+                name: 'ai_generated.wasm',
+                data: base64
+            });
+            this.renderConstructorItems();
+
+            // Note: We don't close the modal immediately so the user can see the logs
+            this.aiGenerateBtn.disabled = false;
+            this.aiGenerateBtn.textContent = 'Regenerate';
+        } catch (error) {
+            console.error('AI generation failed:', error);
+            this.aiStatusText.textContent = 'Error: ' + error.message;
+            this.aiGenerateBtn.disabled = false;
+        }
+    }
+
+    async getWitsContext() {
+        const result = await chrome.runtime.sendMessage({
+            action: 'executeSQL',
+            name: 'wits',
+            sql: "SELECT name, wit FROM wits"
+        });
+
+        if (result.success && result.result && result.result.length > 0) {
+            return result.result[0].values.map(v => `WIT Name: ${v[0]}\nDefinition:\n${v[1]}`).join('\n\n');
+        }
+        return 'No WIT definitions available.';
+    }
+
+    async callGeminiApi(prompt, witsContext) {
+        if (!this.geminiModel) {
+            throw new Error('No Gemini model selected in settings.');
+        }
+        const modelName = this.geminiModel;
+        const url = `https://generativelanguage.googleapis.com/v1beta/${modelName}:generateContent?key=${this.geminiApiKey}`;
+
+        const systemInstruction = `You are an expert Zig developer. 
+Your task is to write a Zig file that will be compiled to WebAssembly (Wasm) as a WASI executable.
+It will run in a host environment with these WIT interfaces available:
+${witsContext}
+
+### INSTRUCTIONS:
+1. Output ONLY the raw Zig (.zig) source code. No markdown formatting, no explanations, no HTML tags.
+2. The module MUST export a 'run' function: 'pub export fn run() i32 { ... }'
+3. The module MUST define a dummy 'main' function to satisfy WASI: 'pub fn main() void {}'
+4. You can import host functions using extern block syntax. The module name corresponds to the WIT interface.
+   Example:
+   extern "chrome:bookmarks/bookmarks" fn get_tree() i32;
+   extern "user:sqlite/sqlite" fn execute(db: i32, sql: i32, params: i32) i32;
+
+5. Use the standard library if needed via \`const std = @import("std");\`.
+6. CRITICAL ZIG SYNTAX: When defining pointers to structs or arrays (e.g. for WIT lists or strings), you MUST use valid Zig pointer syntax like \`[*]const T\` or \`*const T\`. NEVER use \`[*const T]\` as that is invalid syntax.
+7. CRITICAL ZIG BUILTINS: You MUST use modern Zig 0.11+ builtins. 
+   - DO NOT use \`@intToPtr(T, addr)\`. Use \`@as(T, @ptrFromInt(addr))\` instead.
+   - DO NOT use \`@ptrFromInt(T, addr)\` with two arguments. \`@ptrFromInt\` takes EXACTLY ONE argument.
+   - DO NOT use \`@ptrCast(T, ptr)\` with two arguments. \`@ptrCast\` takes EXACTLY ONE argument.
+   - DO NOT use \`@intCast(T, int)\` with two arguments. \`@intCast\` takes EXACTLY ONE argument.
+   - DO NOT use \`@ptrToInt(ptr)\`. Use \`@intFromPtr(ptr)\` instead.
+8. CRITICAL ZIG TYPES: \`usize\`, \`u8\`, \`u32\`, \`bool\`, etc are primitive built-in types in Zig. DO NOT redefine them (e.g. do NOT write \`const usize = ...\`).
+9. CRITICAL EXTERN STRUCTS: An \`extern struct\` can ONLY contain extern-compatible types. If you need a union inside an \`extern struct\`, it MUST be declared as an \`extern union\`. NEVER use a plain \`union\` inside an \`extern struct\`.
+10. CRITICAL STRUCT DECLARATIONS: In Zig, structs are assigned to constants. You MUST declare them as \`const MyStruct = struct { ... };\` or \`const MyStruct = extern struct { ... };\`. NEVER use C-style declarations like \`struct MyStruct { ... }\` or \`extern struct MyStruct { ... }\`.
+11. CRITICAL CASTING: Whenever you need to cast a pointer returned by an allocator or an \`anyopaque\` pointer (like from WIT list data_ptr), DO NOT use \`@ptrCast\` or \`@intCast\`. Instead use the \`@as(T, ...)\` builtin. Example: To cast an opaque ptr to a typed ptr: \`const typed_ptr = @as(*const MyStruct, @ptrCast(opaque_ptr));\`
+12. CRITICAL ZIG POINTERS: Zig DOES NOT HAVE A \`*mut\` KEYWORD. Pointers to mutable data are written as \`*T\`. Pointers to constant data are \`*const T\`. NEVER write \`*mut T\` like in Rust!
+13. CRITICAL HOST FUNCTIONS: DO NOT invent your own signatures for host functions. If the template or instructions say \`extern "chrome:bookmarks/bookmarks" fn get_tree() i32;\`, you MUST USE IT EXACTLY AS PROVIDED. Do not add arguments to it!
+14. CRITICAL EXTERN BLOCKS: Zig DOES NOT support Rust-style \`extern "module" { fn f(); }\` blocks. You must declare EACH extern function individually like \`extern "module" fn f() void;\`.
+15. CRITICAL UNUSED VARIABLES: Zig is extremely strict about unused variables. 
+   - DO NOT discard a parameter using \`_ = param;\` if you use it anywhere else in the function. 
+   - BAD: \`_ = x; return x + 1;\` (This causes a "pointless discard" error).
+   - GOOD: \`_ = x; return 1;\` OR just \`return x + 1;\`.
+   - ONLY discard a parameter if it is TRULY NEVER used. Doing both is a fatal error.
+16. CRITICAL HOST POINTERS: Host functions return \`i32\`. To use this as a pointer address in Zig, you MUST cast it to \`usize\` first. 
+    - EXAMPLE: \`const addr = @as(usize, @intCast(get_tree())); const ptr = @as(*const Result, @ptrFromInt(addr));\`
+17. CRITICAL MEMORY ALLOCATION: The host needs to allocate memory in your WASM module to return strings and lists. You MUST export an allocation function exactly named \`cabi_realloc\`.
+    - COPY THIS CODE EXACTLY:
+    pub export fn cabi_realloc(ptr: ?*anyopaque, old_size: usize, align_val: usize, new_size: usize) ?*anyopaque {
+        _ = align_val;
+        if (new_size == 0) return null;
+        const mem = std.heap.page_allocator.alloc(u8, new_size) catch @panic("OOM");
+        if (ptr) |p| {
+            const old_ptr = @as([*]u8, @ptrCast(p));
+            const copy_len = if (old_size < new_size) old_size else new_size;
+            @memcpy(mem[0..copy_len], old_ptr[0..copy_len]);
+        }
+        return mem.ptr;
+    }
+
+18. CRITICAL COMPILER LIMITATION: Our Zig environment does NOT support the \`mod\` instruction for floating-point numbers. 
+    - AVOID using \`std.math.mod\` or the \`%\` operator with \`f32\` or \`f64\` types. 
+    - This will cause a compilation error: "TODO: Implement wasm inst: mod".
+    - Workaround: Use integer operations wherever possible.
+19. RANDOMNESS: If you need random numbers, use \`std.rand.DefaultPrng\`. Since WASI is stubbed, you can seed it with the result of a host call (like bookmark tree length) to get some pseudo-entropy.
+    - EXAMPLE:
+    var prng = std.rand.DefaultPrng.init(42); // Seed with any integer
+    const rand = prng.random();
+    const val = rand.int(u32);
+20. STANDARD LIBRARY OUTPUT: While \`std.debug.print\` and \`std.log\` are now supported via WASI stubs, they are slower than the host \`log\` function.
+    - PREFER using the host \`log\` function for your debug messages: \`extern "env" fn log(ptr: [*]const u8, len: i32) void;\`
+    - If you must use \`std.debug.print\`, ensure you include the newline character \`\\n\` to flush the buffer correctly.
+21. COMPTIME FORMAT STRINGS: Functions like \`std.debug.print\`, \`std.fmt.allocPrint\`, and \`std.fmt.format\` require the format string to be known at compile-time (comptime).
+    - NEVER pass a runtime-known variable as the first argument to these functions. 
+    - The format string MUST be a string literal.
+    - BAD: \`std.debug.print(my_string, .{});\`
+    - GOOD: \`std.debug.print("{s}\\n", .{my_string});\` or \`std.debug.print("Count: {d}\\n", .{count});\`
+
+### EXAMPLE TEMPLATE:
+const std = @import("std");
+
+extern "env" fn log(ptr: [*]const u8, len: i32) void;
+extern "chrome:bookmarks/bookmarks" fn get_tree() i32;
+
+pub export fn run() i32 {
+  var success: bool = true;
+  return if (success) 0 else 1;
+}
+
+pub fn main() void {}
+
+CRITICAL: Output ONLY the Zig code. No markdown (\`\`\`zig) wrappers.
+`;
+
+        const response = await fetch(url, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                contents: [{ parts: [{ text: prompt }] }],
+                system_instruction: { parts: [{ text: systemInstruction }] }
+            })
+        });
+
+        if (!response.ok) {
+            const err = await response.json();
+            throw new Error(err.error?.message || 'Gemini API call failed');
+        }
+
+        const data = await response.json();
+        let zigCode = data.candidates?.[0]?.content?.parts?.[0]?.text || '';
+
+        // Remove markdown code blocks if any
+        zigCode = zigCode.replace(/^```zig\n/, '').replace(/^```\n?/, '').replace(/\n```$/, '');
+
+        return zigCode;
+    }
+
+    arrayBufferToBase64(buffer) {
+        let binary = '';
+        const bytes = new Uint8Array(buffer);
+        const len = bytes.byteLength;
+        for (let i = 0; i < len; i++) {
+            binary += String.fromCharCode(bytes[i]);
+        }
+        return btoa(binary);
     }
 }
 

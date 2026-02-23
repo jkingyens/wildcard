@@ -49,10 +49,12 @@ class WasmRuntime {
         return new TextDecoder().decode(bytes);
     }
     alloc(size, align) {
-        if (!this.instance || !this.instance.exports.cabi_realloc) {
-            throw new Error("WASM module missing 'cabi_realloc' export");
+        if (!this.instance) throw new Error("Wasm instance not initialized");
+        const realloc = this.instance.exports.cabi_realloc || this.instance.exports.canonical_abi_realloc;
+        if (!realloc) {
+            throw new Error("WASM module missing 'cabi_realloc' or 'canonical_abi_realloc' export");
         }
-        return this.instance.exports.cabi_realloc(0, 0, align, size);
+        return realloc(0, 0, align, size);
     }
     writeString(str) {
         const bytes = new TextEncoder().encode(str);
@@ -61,12 +63,13 @@ class WasmRuntime {
         dest.set(bytes);
         return { ptr, len: bytes.length };
     }
-    encodeBookmarkNode(node) {
-        const ptr = this.alloc(52, 4);
+    encodeBookmarkNode(node, targetPtr = null) {
+        const ptr = targetPtr || this.alloc(52, 4);
         const idStr = this.writeString(node.id);
         let view = this.getView();
         view.setUint32(ptr + 0, idStr.ptr, true);
         view.setUint32(ptr + 4, idStr.len, true);
+
         if (node.parentId) {
             const pIdStr = this.writeString(node.parentId);
             view = this.getView();
@@ -76,10 +79,12 @@ class WasmRuntime {
         } else {
             this.getView().setUint32(ptr + 8, 0, true);
         }
+
         const titleStr = this.writeString(node.title || '');
         view = this.getView();
         view.setUint32(ptr + 20, titleStr.ptr, true);
         view.setUint32(ptr + 24, titleStr.len, true);
+
         if (node.url) {
             const urlStr = this.writeString(node.url);
             view = this.getView();
@@ -89,26 +94,26 @@ class WasmRuntime {
         } else {
             this.getView().setUint32(ptr + 28, 0, true);
         }
+
         if (node.children && node.children.length > 0) {
-            const childPtrs = node.children.map(c => this.encodeBookmarkNode(c));
-            const listPtr = this.alloc(childPtrs.length * 4, 4);
+            const encodedChildren = this.encodeBookmarkList(node.children);
             view = this.getView();
-            const listBytes = new Uint32Array(this.memory.buffer, listPtr, childPtrs.length);
-            listBytes.set(childPtrs);
             view.setUint32(ptr + 40, 1, true);
-            view.setUint32(ptr + 44, listPtr, true);
-            view.setUint32(ptr + 48, node.children.length, true);
+            view.setUint32(ptr + 44, encodedChildren.ptr, true);
+            view.setUint32(ptr + 48, encodedChildren.len, true);
         } else {
             this.getView().setUint32(ptr + 40, 0, true);
         }
         return ptr;
     }
     encodeBookmarkList(nodes) {
-        const ptrs = nodes.map(n => this.encodeBookmarkNode(n));
-        const listPtr = this.alloc(ptrs.length * 4, 4);
-        const listBytes = new Uint32Array(this.memory.buffer, listPtr, ptrs.length);
-        listBytes.set(ptrs);
-        return { ptr: listPtr, len: ptrs.length };
+        // Canonical ABI: list<struct> is a contiguous array of structs.
+        // Each BookmarkNode is 52 bytes.
+        const listPtr = this.alloc(nodes.length * 52, 4);
+        for (let i = 0; i < nodes.length; i++) {
+            this.encodeBookmarkNode(nodes[i], listPtr + (i * 52));
+        }
+        return { ptr: listPtr, len: nodes.length };
     }
     encodeStringList(strs) {
         const listPtr = this.alloc(strs.length * 8, 4);
@@ -453,7 +458,8 @@ async function handleMessage(request, sender, sendResponse) {
             }
             case 'runWasmPacketItem': {
                 try {
-                    const { name, data } = request.item;
+                    const data = request.bytes || request.data || (request.item && request.item.data);
+                    if (!data) throw new Error("No WASM data provided");
                     let binaryString = atob(data);
                     if (binaryString.charCodeAt(0) !== 0 && binaryString.startsWith('AGFz')) {
                         try { binaryString = atob(binaryString); } catch (e) { }
@@ -467,7 +473,6 @@ async function handleMessage(request, sender, sendResponse) {
                         "execute": (dbNamePtr, dbNameLen, sqlPtr, sqlLen) => {
                             const dbName = runtime.readString(dbNamePtr, dbNameLen);
                             const sql = runtime.readString(sqlPtr, sqlLen);
-                            console.log(`[Host] sqlite.execute: db=${dbName}, sql=${sql}`);
                             try {
                                 const db = sqliteManager.initDatabase(dbName);
                                 db.exec(sql);
@@ -534,8 +539,14 @@ async function handleMessage(request, sender, sendResponse) {
                             }
                         }
                     };
+                    const executionLogs = [];
                     const importObject = {
-                        env: { log: (ptr, len) => console.log('WASM Log:', runtime.readString(ptr, len)) },
+                        env: {
+                            log: (ptr, len) => {
+                                const msg = runtime.readString(ptr, len);
+                                executionLogs.push(msg);
+                            }
+                        },
                         "chrome:bookmarks/bookmarks": {
                             "get-tree": () => {
                                 try {
@@ -557,6 +568,9 @@ async function handleMessage(request, sender, sendResponse) {
                                     return resultPtr;
                                 }
                             },
+                            "get_tree": (...args) => importObject["chrome:bookmarks/bookmarks"]["get-tree"](...args),
+                            "get-all-bookmarks": () => importObject["chrome:bookmarks/bookmarks"]["get-tree"](),
+                            "get_all_bookmarks": () => importObject["chrome:bookmarks/bookmarks"]["get-tree"](),
                             "create": (titlePtr, titleLen, urlPtr, urlLen) => {
                                 const errStr = runtime.writeString("Async 'create' requires JSPI.");
                                 const resultPtr = runtime.alloc(12, 4);
@@ -567,15 +581,65 @@ async function handleMessage(request, sender, sendResponse) {
                                 return resultPtr;
                             }
                         },
-                        "user:sqlite/sqlite": sqliteHost
+                        "chrome:bookmarks": {
+                            "get-tree": () => importObject["chrome:bookmarks/bookmarks"]["get-tree"](),
+                            "get_tree": () => importObject["chrome:bookmarks/bookmarks"]["get-tree"](),
+                            "get-all-bookmarks": () => importObject["chrome:bookmarks/bookmarks"]["get_tree"](),
+                            "get_all_bookmarks": () => importObject["chrome:bookmarks/bookmarks"]["get_tree"](),
+                            "create": (...args) => importObject["chrome:bookmarks/bookmarks"]["create"](...args)
+                        },
+                        "user:sqlite/sqlite": sqliteHost,
+                        "wasi_snapshot_preview1": {
+                            fd_write: (fd, iovs_ptr, iovs_len, nwritten_ptr) => {
+                                let totalWritten = 0;
+                                const view = runtime.getView();
+                                for (let i = 0; i < iovs_len; i++) {
+                                    const ptr = view.getUint32(iovs_ptr + i * 8, true);
+                                    const len = view.getUint32(iovs_ptr + i * 8 + 4, true);
+                                    const msg = runtime.readString(ptr, len);
+                                    executionLogs.push(msg);
+                                    totalWritten += len;
+                                }
+                                view.setUint32(nwritten_ptr, totalWritten, true);
+                                return 0; // Success
+                            },
+                            environ_get: () => 0,
+                            environ_sizes_get: (countPtr, sizePtr) => {
+                                const view = runtime.getView();
+                                view.setUint32(countPtr, 0, true);
+                                view.setUint32(sizePtr, 0, true);
+                                return 0;
+                            },
+                            proc_exit: (code) => { console.log("Proc exit:", code); return 0; },
+                            fd_close: () => 0,
+                            fd_seek: () => 0,
+                            fd_fdstat_get: (fd, statPtr) => {
+                                const view = runtime.getView();
+                                // Basic stat for stdout/stderr
+                                view.setUint8(statPtr, 2); // character device
+                                return 0;
+                            }
+                        }
                     };
-                    const { instance } = await WebAssembly.instantiate(bytes, importObject);
+                    let instance;
+                    try {
+                        const result = await WebAssembly.instantiate(bytes, importObject);
+                        instance = result.instance;
+                    } catch (e) {
+                        if (e instanceof WebAssembly.LinkError) {
+                            throw new Error(`WASM LinkError: ${e.message}. Possible mismatch between generated code and host imports.`);
+                        }
+                        throw e;
+                    }
                     runtime.setInstance(instance);
-                    if (instance.exports.main) {
+                    if (instance.exports.run) {
+                        const result = instance.exports.run();
+                        sendResponse({ success: true, result, logs: executionLogs });
+                    } else if (instance.exports.main) {
                         const result = instance.exports.main();
-                        sendResponse({ success: true, result });
+                        sendResponse({ success: true, result, logs: executionLogs });
                     } else {
-                        sendResponse({ success: false, error: "No main export" });
+                        sendResponse({ success: false, error: "No run or main export found", logs: executionLogs });
                     }
                 } catch (err) {
                     console.error('WASM error:', err);

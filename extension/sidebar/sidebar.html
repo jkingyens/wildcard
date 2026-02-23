@@ -13,8 +13,13 @@
   <!-- ===== LIST VIEW ===== -->
   <div id="listView" class="view active">
     <header>
-      <h1>📊 SQLite Collections</h1>
-      <p class="subtitle">Manage your databases</p>
+      <div style="display: flex; justify-content: space-between; align-items: center;">
+        <div>
+          <h1>📊 SQLite Collections</h1>
+          <p class="subtitle">Manage your databases</p>
+        </div>
+        <button id="settingsBtn" class="btn-icon" style="font-size: 20px;" title="Settings">⚙️</button>
+      </div>
     </header>
 
     <div class="actions">
@@ -31,6 +36,36 @@
         <div class="empty-icon">🗄️</div>
         <p>No collections yet</p>
         <p class="hint">Create a new collection or import an existing database</p>
+      </div>
+    </div>
+  </div>
+
+  <!-- ===== SETTINGS VIEW ===== -->
+  <div id="settingsView" class="view">
+    <header class="detail-header">
+      <button id="settingsBackBtn" class="back-btn">← Back</button>
+      <h2 class="detail-title">Settings</h2>
+    </header>
+    <div class="constructor-body">
+      <div class="form-group">
+        <label>Gemini API Key</label>
+        <input type="password" id="geminiApiKeyInput" placeholder="Enter your Gemini API key" class="form-input"
+          style="width:100%; margin-bottom:10px; padding:8px; border: 1px solid var(--border); border-radius: 6px;">
+        <p class="hint">The API key is required for the "Generate WASM" feature.</p>
+      </div>
+      <div class="form-group" style="margin-top: 10px;">
+        <label>Gemini Model</label>
+        <div style="display: flex; gap: 8px; margin-bottom: 6px;">
+          <select id="geminiModelSelect" class="form-input"
+            style="flex: 1; padding:8px; border: 1px solid var(--border); border-radius: 6px; background: white;">
+            <option value="">Select a model...</option>
+          </select>
+          <button id="fetchModelsBtn" class="btn btn-secondary btn-sm" title="Fetch available models">🔄</button>
+        </div>
+        <p id="modelFetchStatus" class="hint"></p>
+      </div>
+      <div class="constructor-actions">
+        <button id="saveSettingsBtn" class="btn btn-primary" style="flex:2;">💾 Save Settings</button>
       </div>
     </div>
   </div>
@@ -100,6 +135,7 @@
       <div class="constructor-actions">
         <button id="addCurrentTabBtn" class="btn btn-secondary">＋ Add Current Tab</button>
         <button id="addWasmBtn" class="btn btn-secondary">＋ Add WASM</button>
+        <button id="aiGenerateWasmBtn" class="btn btn-secondary hidden">✨ Generate WASM</button>
         <input type="file" id="wasmFileInput" accept=".wasm" style="display: none;">
       </div>
       <div id="constructorList" class="constructor-list">
@@ -143,7 +179,8 @@
         <h3>Edit Schema</h3>
         <button id="modalCloseBtn" class="btn-icon">✕</button>
       </div>
-      <p class="modal-hint">Enter one or more <code>CREATE TABLE</code> statements. Removed tables will be dropped.</p>
+      <p class="modal-hint">Enter one or more <code>CREATE TABLE</code> statements. Removed tables will be dropped.
+      </p>
 
       <div class="schema-presets">
         <span class="presets-label">Paste example:</span>
@@ -162,6 +199,36 @@
       <div class="modal-actions">
         <button id="modalCancelBtn" class="btn btn-secondary">Cancel</button>
         <button id="modalSaveBtn" class="btn btn-primary">Save Schema</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ===== AI PROMPT MODAL ===== -->
+  <div id="aiPromptModal" class="modal-overlay hidden">
+    <div class="modal">
+      <div class="modal-header">
+        <h3>✨ Generate WASM with Gemini</h3>
+        <button id="aiModalCloseBtn" class="btn-icon">✕</button>
+      </div>
+      <p class="modal-hint">Describe the functionality you want for your Wasm module.</p>
+      <textarea id="aiPromptTextarea" class="schema-textarea"
+        placeholder="e.g. A function that calculates the total size of all bookmarks..." spellcheck="false"
+        style="height: 120px; margin-bottom: 12px;"></textarea>
+
+      <div id="aiStatus" class="ai-status hidden">
+        <div class="spinner"></div>
+        <span id="aiStatusText">Generating...</span>
+      </div>
+
+      <div id="aiExecutionOutput" class="ai-execution-output hidden">
+        <h4>WASM Execution Output</h4>
+        <pre id="aiLogContent"></pre>
+        <div id="aiResultBadge" class="result-badge">Result: <span id="aiResultValue"></span></div>
+      </div>
+
+      <div class="modal-actions">
+        <button id="aiCancelBtn" class="btn btn-secondary">Cancel</button>
+        <button id="aiGenerateBtn" class="btn btn-primary">Generate</button>
       </div>
     </div>
   </div>
@@ -260,7 +327,7 @@
     </div>
   </template>
 
-  <script src="sidebar.js"></script>
+  <script type="module" src="sidebar.js"></script>
 </body>
 
 </html>

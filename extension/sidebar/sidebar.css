@@ -1100,3 +1100,91 @@ h1 {
   background: rgba(217, 70, 239, 0.1);
   color: var(--secondary);
 }
+/* AI Generation UI */
+.ai-status {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 10px 0;
+  font-size: 13px;
+  color: var(--primary);
+}
+
+.spinner {
+  width: 16px;
+  height: 16px;
+  border: 2px solid rgba(79, 70, 229, 0.2);
+  border-top-color: var(--primary);
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
+.hidden {
+  display: none !important;
+}
+
+/* Settings button styling */
+#settingsBtn {
+  opacity: 0.7;
+  transition: all 0.2s;
+}
+
+#settingsBtn:hover {
+  opacity: 1;
+  transform: rotate(30deg);
+}
+
+/* ===== AI EXECUTION OUTPUT ===== */
+.ai-execution-output {
+  margin-top: 16px;
+  padding: 12px;
+  background: #0f172a;
+  border-radius: 8px;
+  border: 1px solid #1e293b;
+  color: #e2e8f0;
+  animation: fadeIn 0.2s ease-out;
+}
+
+.ai-execution-output h4 {
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: #94a3b8;
+  margin-bottom: 8px;
+}
+
+#aiLogContent {
+  font-family: 'JetBrains Mono', 'Fira Code', monospace;
+  font-size: 11px;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  word-break: break-all;
+  max-height: 150px;
+  overflow-y: auto;
+  margin: 0 0 10px 0;
+  color: #38bdf8;
+}
+
+.result-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background: #1e293b;
+  padding: 4px 10px;
+  border-radius: 6px;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+#aiResultValue {
+  color: #10b981;
+}
+
+.ai-execution-output.hidden {
+  display: none;
+}
