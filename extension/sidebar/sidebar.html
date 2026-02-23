@@ -233,6 +233,26 @@
     </div>
   </div>
 
+  <!-- ===== WASM RESULT MODAL ===== -->
+  <div id="wasmResultModal" class="modal-overlay hidden">
+    <div class="modal">
+      <div class="modal-header">
+        <h3>🧩 WASM Execution Result</h3>
+        <button id="wasmResultCloseBtn" class="btn-icon">✕</button>
+      </div>
+
+      <div class="ai-execution-output">
+        <h4>Runtime Logs</h4>
+        <pre id="wasmLogContent" style="max-height: 250px;"></pre>
+        <div class="result-badge">Result: <span id="wasmResultValue"></span></div>
+      </div>
+
+      <div class="modal-actions">
+        <button id="wasmResultOkBtn" class="btn btn-primary">Dismiss</button>
+      </div>
+    </div>
+  </div>
+
   <!-- Collection Item Template (list view) -->
   <template id="collectionTemplate">
     <div class="collection-item">

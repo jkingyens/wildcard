@@ -243,6 +243,17 @@ class SidebarUI {
         this.aiLogContent = document.getElementById('aiLogContent');
         this.aiResultValue = document.getElementById('aiResultValue');
 
+        // WASM Result Modal elements
+        this.wasmResultModal = document.getElementById('wasmResultModal');
+        this.wasmLogContent = document.getElementById('wasmLogContent');
+        this.wasmResultValue = document.getElementById('wasmResultValue');
+        this.wasmResultCloseBtn = document.getElementById('wasmResultCloseBtn');
+        this.wasmResultOkBtn = document.getElementById('wasmResultOkBtn');
+
+        // Close listeners
+        this.wasmResultCloseBtn.onclick = () => this.wasmResultModal.classList.add('hidden');
+        this.wasmResultOkBtn.onclick = () => this.wasmResultModal.classList.add('hidden');
+
         // State
         this.currentCollection = null;
         this.currentSchema = [];
@@ -607,12 +618,7 @@ class SidebarUI {
                         card.style.opacity = '0.7';
                         try {
                             const resp = await this.sendMessage({ action: 'runWasmPacketItem', item });
-                            if (resp.success) {
-                                this.showNotification(`WASM Result: ${resp.result}`, 'success');
-                                console.log('WASM Result:', resp.result);
-                            } else {
-                                this.showNotification('WASM Execution Failed: ' + resp.error, 'error');
-                            }
+                            this.showWasmResults(resp.logs, resp.result, resp.success, resp.error);
                         } catch (e) {
                             this.showNotification('WASM Execution Error', 'error');
                         } finally {
@@ -1666,6 +1672,24 @@ class SidebarUI {
             console.error('AI generation failed:', error);
             this.aiStatusText.textContent = 'Error: ' + error.message;
             this.aiGenerateBtn.disabled = false;
+        }
+    }
+
+    showWasmResults(logs, result, success, error) {
+        this.wasmResultModal.classList.remove('hidden');
+
+        if (success) {
+            this.wasmResultValue.textContent = result;
+            this.wasmResultValue.style.color = '#10b981';
+        } else {
+            this.wasmResultValue.textContent = 'Error: ' + error;
+            this.wasmResultValue.style.color = '#ef4444';
+        }
+
+        if (logs && logs.length > 0) {
+            this.wasmLogContent.textContent = logs.join('\n');
+        } else {
+            this.wasmLogContent.textContent = 'No logs produced.';
         }
     }
 
