@@ -262,6 +262,24 @@
     </div>
   </div>
 
+  <!-- ===== ENTRY PREVIEW MODAL ===== -->
+  <div id="entryPreviewModal" class="modal-overlay hidden">
+    <div class="modal">
+      <div class="modal-header">
+        <h3 id="entryPreviewTitle">Entry Preview</h3>
+        <button id="entryPreviewCloseBtn" class="btn-icon">✕</button>
+      </div>
+      <div class="entry-preview-body" style="max-height: 400px; overflow-y: auto; margin: 10px 0;">
+        <table id="entryDataTable" class="entry-data-table">
+          <!-- Data rows go here -->
+        </table>
+      </div>
+      <div class="modal-actions">
+        <button id="entryPreviewOkBtn" class="btn btn-primary">Dismiss</button>
+      </div>
+    </div>
+  </div>
+
   <!-- Collection Item Template (list view) -->
   <template id="collectionTemplate">
     <div class="collection-item">

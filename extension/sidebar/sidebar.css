@@ -1200,3 +1200,45 @@ h1 {
 .ai-execution-output.hidden {
   display: none;
 }
+/* Entry Preview Styles */
+.entry-data-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+  table-layout: fixed;
+}
+
+.entry-data-table th, 
+.entry-data-table td {
+  padding: 8px;
+  border: 1px solid var(--border);
+  text-align: left;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.entry-data-table th {
+  background: var(--bg);
+  width: 100px;
+  color: var(--text-light);
+  font-weight: 600;
+}
+
+.entry-data-table td {
+  color: var(--text);
+  background: white;
+}
+
+.entry-row {
+  cursor: pointer;
+}
+
+.entry-row:hover {
+  background: var(--bg);
+}
+
+.entry-row:hover .entry-label {
+  color: var(--primary);
+  font-weight: 600;
+}

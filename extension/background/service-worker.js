@@ -235,6 +235,15 @@ async function handleMessage(request, sender, sendResponse) {
                 sendResponse({ success: true, entries });
                 break;
             }
+            case 'getEntry': {
+                try {
+                    const row = sqliteManager.getEntry(request.name, request.tableName, request.rowId);
+                    sendResponse({ success: true, row });
+                } catch (err) {
+                    sendResponse({ success: false, error: err.message });
+                }
+                break;
+            }
             case 'setSchema': {
                 await sqliteManager.applySchema(request.name, request.createSQL, chrome.storage.local, 'db_');
                 sendResponse({ success: true });

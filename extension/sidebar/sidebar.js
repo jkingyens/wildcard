@@ -350,6 +350,13 @@ class SidebarUI {
         this.wasmResultCloseBtn.onclick = () => this.wasmResultModal.classList.add('hidden');
         this.wasmResultOkBtn.onclick = () => this.wasmResultModal.classList.add('hidden');
 
+        // Entry Preview Modal elements
+        this.entryPreviewModal = document.getElementById('entryPreviewModal');
+        this.entryPreviewTitle = document.getElementById('entryPreviewTitle');
+        this.entryDataTable = document.getElementById('entryDataTable');
+        this.entryPreviewCloseBtn = document.getElementById('entryPreviewCloseBtn');
+        this.entryPreviewOkBtn = document.getElementById('entryPreviewOkBtn');
+
         // State
         this.currentCollection = null;
         this.currentSchema = [];
@@ -478,6 +485,13 @@ class SidebarUI {
         document.getElementById('aiModalCloseBtn').addEventListener('click', () => this.closeAiPromptModal());
         document.getElementById('aiCancelBtn').addEventListener('click', () => this.closeAiPromptModal());
         this.aiGenerateBtn.addEventListener('click', () => this.generateWasmWithAi());
+
+        // Entry Preview Modal
+        this.entryPreviewCloseBtn.addEventListener('click', () => this.entryPreviewModal.classList.add('hidden'));
+        this.entryPreviewOkBtn.addEventListener('click', () => this.entryPreviewModal.classList.add('hidden'));
+        this.entryPreviewModal.addEventListener('click', (e) => {
+            if (e.target === this.entryPreviewModal) this.entryPreviewModal.classList.add('hidden');
+        });
     }
 
     // ===== NAVIGATION =====
@@ -943,7 +957,7 @@ class SidebarUI {
                         html += '<p class="hint" style="margin-bottom:8px;">No entries yet.</p>';
                     } else {
                         html += resp.entries.map(id => `
-                          <div class="entry-row">
+                          <div class="entry-row" data-id="${id}" data-table="${tableName}">
                             <span class="entry-id">#</span>
                             <span class="entry-label">${id}</span>
                           </div>`).join('');
@@ -953,6 +967,13 @@ class SidebarUI {
 
             this.entryCount.textContent = totalCount;
             this.entriesContent.innerHTML = html || '<p class="hint">No entries yet.</p>';
+
+            // Add click listeners to entries
+            this.entriesContent.querySelectorAll('.entry-row').forEach(row => {
+                row.addEventListener('click', () => {
+                    this.showEntryPreview(collectionName, row.dataset.table, row.dataset.id);
+                });
+            });
         } catch (error) {
             console.error('Failed to load entries:', error);
             this.entriesContent.innerHTML = '<p class="hint">Failed to load entries.</p>';
@@ -1587,6 +1608,39 @@ class SidebarUI {
                 }
             });
         });
+    }
+
+    async showEntryPreview(collection, table, rowId) {
+        try {
+            this.entryDataTable.innerHTML = '<tr><td colspan="2" class="hint">Loading...</td></tr>';
+            this.entryPreviewTitle.textContent = `Entry Preview: ${table} #${rowId}`;
+            this.entryPreviewModal.classList.remove('hidden');
+
+            const resp = await this.sendMessage({
+                action: 'getEntry',
+                name: collection,
+                tableName: table,
+                rowId
+            });
+
+            if (resp.success && resp.row) {
+                let html = '';
+                for (const [key, value] of Object.entries(resp.row)) {
+                    html += `
+                        <tr>
+                            <th>${this.escapeHtml(key)}</th>
+                            <td>${this.escapeHtml(String(value))}</td>
+                        </tr>
+                    `;
+                }
+                this.entryDataTable.innerHTML = html;
+            } else {
+                this.entryDataTable.innerHTML = `<tr><td colspan="2" class="hint">Error: ${resp.error || 'Entry not found'}</td></tr>`;
+            }
+        } catch (error) {
+            console.error('Failed to show entry preview:', error);
+            this.entryDataTable.innerHTML = '<tr><td colspan="2" class="hint">Failed to load entry details.</td></tr>';
+        }
     }
 
     escapeHtml(str) {
