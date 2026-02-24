@@ -141,13 +141,13 @@ async function initializeSQLite() {
 
     // Auto-restore all saved checkpoints before handling any messages
     try {
-        const restored = await sqliteManager.restoreAllCheckpoints(chrome.storage.local);
+        const restored = await sqliteManager.restoreAllCheckpoints(chrome.storage.local, 'db_');
         if (restored.length > 0) {
             console.log(`Auto-restored collections: ${restored.join(', ')}`);
         }
-        await sqliteManager.ensurePacketsCollection(chrome.storage.local);
-        await sqliteManager.ensureSchemasCollection(chrome.storage.local);
-        await sqliteManager.ensureWitsCollection(chrome.storage.local);
+        await sqliteManager.ensurePacketsCollection();
+        await sqliteManager.ensureSchemasCollection();
+        await sqliteManager.ensureWitsCollection();
 
         // Also sync bookmarks cache
         await syncBookmarkCache();
@@ -200,18 +200,18 @@ async function handleMessage(request, sender, sendResponse) {
                 break;
             }
             case 'saveCheckpoint': {
-                await sqliteManager.saveCheckpoint(request.name, chrome.storage.local);
+                await sqliteManager.saveCheckpoint(request.name, chrome.storage.local, request.prefix || 'checkpoint_');
                 sendResponse({ success: true });
                 break;
             }
             case 'restoreCheckpoint': {
-                const restored = await sqliteManager.restoreCheckpoint(request.name, chrome.storage.local);
+                const restored = await sqliteManager.restoreCheckpoint(request.name, chrome.storage.local, request.prefix || 'checkpoint_');
                 sendResponse({ success: true, restored });
                 break;
             }
             case 'deleteCollection': {
                 sqliteManager.closeDatabase(request.name);
-                await chrome.storage.local.remove(`checkpoint_${request.name}`);
+                await chrome.storage.local.remove([`checkpoint_${request.name}`, `db_${request.name}`]);
                 sendResponse({ success: true });
                 break;
             }
@@ -236,7 +236,7 @@ async function handleMessage(request, sender, sendResponse) {
                 break;
             }
             case 'setSchema': {
-                await sqliteManager.applySchema(request.name, request.createSQL, chrome.storage.local);
+                await sqliteManager.applySchema(request.name, request.createSQL, chrome.storage.local, 'db_');
                 sendResponse({ success: true });
                 break;
             }
@@ -263,14 +263,14 @@ async function handleMessage(request, sender, sendResponse) {
                         return item.type === 'link';
                     }).map(item => typeof item === 'string' ? item : item.url);
 
+                    if (links.length === 0) {
+                        sendResponse({ success: true, message: 'No web pages found in packet.' });
+                        break;
+                    }
+
                     const tabIds = [];
                     for (const url of links) {
                         const tab = await chrome.tabs.create({ url, active: false });
-                        tabIds.push(tab.id);
-                    }
-
-                    if (tabIds.length === 0) {
-                        const tab = await chrome.tabs.create({ url: 'about:blank', active: false });
                         tabIds.push(tab.id);
                     }
 
@@ -306,7 +306,7 @@ async function handleMessage(request, sender, sendResponse) {
                     const escapedName = request.name.replace(/'/g, "''");
                     const escapedUrls = urlsJson.replace(/'/g, "''");
                     db.exec(`INSERT INTO packets (name, urls) VALUES ('${escapedName}', '${escapedUrls}')`);
-                    await sqliteManager.saveCheckpoint('packets', chrome.storage.local);
+                    await sqliteManager.saveCheckpoint('packets', chrome.storage.local, 'db_');
                     sendResponse({ success: true });
                 } catch (err) {
                     console.error('savePacket error:', err);
@@ -320,7 +320,7 @@ async function handleMessage(request, sender, sendResponse) {
                     if (!db) throw new Error('Packets database not found');
                     const id = parseInt(request.id, 10);
                     db.exec(`DELETE FROM packets WHERE rowid = ${id}`);
-                    await sqliteManager.saveCheckpoint('packets', chrome.storage.local);
+                    await sqliteManager.saveCheckpoint('packets', chrome.storage.local, 'db_');
                     sendResponse({ success: true });
                 } catch (err) {
                     console.error('deletePacket error:', err);
@@ -335,7 +335,7 @@ async function handleMessage(request, sender, sendResponse) {
                     const escapedName = request.name.replace(/'/g, "''");
                     const escapedSql = request.sql.replace(/'/g, "''");
                     db.exec(`INSERT INTO schemas (name, sql) VALUES ('${escapedName}', '${escapedSql}')`);
-                    await sqliteManager.saveCheckpoint('schemas', chrome.storage.local);
+                    await sqliteManager.saveCheckpoint('schemas', chrome.storage.local, 'db_');
                     sendResponse({ success: true });
                 } catch (err) {
                     console.error('saveSchema error:', err);
@@ -349,7 +349,7 @@ async function handleMessage(request, sender, sendResponse) {
                     if (!db) throw new Error('Schemas database not found');
                     const id = parseInt(request.id, 10);
                     db.exec(`DELETE FROM schemas WHERE rowid = ${id}`);
-                    await sqliteManager.saveCheckpoint('schemas', chrome.storage.local);
+                    await sqliteManager.saveCheckpoint('schemas', chrome.storage.local, 'db_');
                     sendResponse({ success: true });
                 } catch (err) {
                     console.error('deleteSchema error:', err);

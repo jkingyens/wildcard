@@ -604,7 +604,7 @@ class SidebarUI {
             const resp = await this.sendMessage({ action: 'executeSQL', name: 'wits', sql });
             if (resp.success) {
                 // Checkpoint
-                await this.sendMessage({ action: 'saveCheckpoint', name: 'wits' });
+                await this.sendMessage({ action: 'saveCheckpoint', name: 'wits', prefix: 'db_' });
                 this.showWitsView();
             } else {
                 alert('Failed to save: ' + resp.error);
@@ -629,7 +629,7 @@ class SidebarUI {
             const sql = `DELETE FROM wits WHERE rowid = ${this.currentWitId}`;
             const resp = await this.sendMessage({ action: 'executeSQL', name: 'wits', sql });
             if (resp.success) {
-                await this.sendMessage({ action: 'saveCheckpoint', name: 'wits' });
+                await this.sendMessage({ action: 'saveCheckpoint', name: 'wits', prefix: 'db_' });
                 this.showWitsView();
             } else {
                 alert('Failed to delete: ' + resp.error);
@@ -638,7 +638,7 @@ class SidebarUI {
     }
 
     showPacketDetailView(packet) {
-        this.activePacketGroupId = packet.groupId;
+        this.activePacketGroupId = packet.groupId || null;
         this.packetDetailTitle.textContent = packet.name;
         this.packetDetailCount.textContent = packet.urls.length;
 
@@ -1005,9 +1005,18 @@ class SidebarUI {
                 this.entriesContent.insertAdjacentHTML('beforeend', `<div class="packet-list">${html}</div>`);
 
                 // Add play + delete handlers
-                this.entriesContent.querySelectorAll('.play-btn').forEach(btn => {
+                this.entriesContent.querySelectorAll('.play-btn').forEach((btn, idx) => {
                     btn.addEventListener('click', async (e) => {
                         e.stopPropagation();
+
+                        // Show details immediately
+                        const [rowid, name, urlsJson] = rows[idx];
+                        this.showPacketDetailView({
+                            id: rowid,
+                            name: name,
+                            urls: JSON.parse(urlsJson)
+                        });
+
                         const originalText = btn.textContent;
                         btn.textContent = '⏳';
                         try {
