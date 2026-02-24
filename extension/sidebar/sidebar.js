@@ -238,6 +238,16 @@ It will run in a host environment with these WIT interfaces available:
     - The format string MUST be a string literal.
     - BAD: \`std.debug.print(my_string, .{});\`
     - GOOD: \`std.debug.print("{s}\\n", .{my_string});\` or \`std.debug.print("Count: {d}\\n", .{count});\`
+22. ERROR HANDLING: Zig is extremely strict about return values that can be errors.
+    - YOU MUST NOT discard an error silently.
+    - BAD: \`std.os.wasi.random_get(&seed, 8);\u0060 (Compilation error: "error is discarded")
+    - GOOD: \`_ = std.os.wasi.random_get(&seed, 8);\u0060 (If you don't care about the error)
+    - BETTER: \`try std.os.wasi.random_get(&seed, 8);\u0060 (If the function can return an error)
+    - ALSO GOOD: \`std.os.wasi.random_get(&seed, 8) catch |err| { ... };\`
+23. DATABASE CONTEXT: You have access to the following SQLite collections and their schemas:
+{{DATABASE_CONTEXT}}
+    - Use this context to identify correct collection and table names for your queries. 
+    - DO NOT guess or invent table names (like "links"). Use ONLY what is provided above.
 
 ### EXAMPLE TEMPLATE:
 const std = @import("std");
@@ -1658,6 +1668,13 @@ class SidebarUI {
         this.geminiApiKey = data.geminiApiKey || '';
         this.geminiModel = data.geminiModel || '';
         this.geminiSystemPrompt = data.geminiSystemPrompt || '';
+
+        // Populate UI
+        this.geminiApiKeyInput.value = this.geminiApiKey;
+        this.geminiSystemPromptInput.value = this.geminiSystemPrompt || DEFAULT_SYSTEM_INSTRUCTION;
+        this.renderModelSelect();
+        this.geminiModelSelect.value = this.geminiModel;
+
         this.checkAiFeatureAvailability();
     }
 
@@ -1725,12 +1742,11 @@ class SidebarUI {
         this.aiGenerateBtn.disabled = true;
 
         try {
-            // 1. Get WIT context
-            const wits = await this.getWitsContext();
-
             this.aiStatusText.textContent = 'Calling Gemini...';
             // 2. Call Gemini API
-            const zigCode = await this.callGeminiApi(prompt, wits);
+            const wits = await this.getWitsContext();
+            const dbContext = await this.getDatabaseContext();
+            const zigCode = await this.callGeminiApi(prompt, wits, dbContext);
 
             // 3. Compile Zig to WASM
             if (typeof compileZigCode === 'undefined') {
@@ -1803,6 +1819,29 @@ class SidebarUI {
         }
     }
 
+    async getDatabaseContext() {
+        try {
+            const collections = await this.sendMessage({ action: 'listCollections' });
+            if (!collections.success) return 'No collections available.';
+
+            let context = '';
+            for (const name of collections.collections) {
+                const schemaResp = await this.sendMessage({ action: 'getSchema', name });
+                if (schemaResp.success) {
+                    context += `\nCollection: "${name}"\n`;
+                    for (const table of schemaResp.schema) {
+                        context += `  Table: "${table.name}"\n`;
+                        context += `    Schema: ${table.sql}\n`;
+                    }
+                }
+            }
+            return context || 'No tables found in any collection.';
+        } catch (error) {
+            console.error('Failed to get database context:', error);
+            return 'Error fetching database context.';
+        }
+    }
+
     async getWitsContext() {
         const result = await chrome.runtime.sendMessage({
             action: 'executeSQL',
@@ -1816,15 +1855,18 @@ class SidebarUI {
         return 'No WIT definitions available.';
     }
 
-    async callGeminiApi(prompt, witsContext) {
-        if (!this.geminiModel) {
-            throw new Error('No Gemini model selected in settings.');
-        }
+    async callGeminiApi(prompt, witsContext, dbContext = '') {
+        const apiKey = this.geminiApiKey;
         const modelName = this.geminiModel;
-        const url = `https://generativelanguage.googleapis.com/v1beta/${modelName}:generateContent?key=${this.geminiApiKey}`;
+
+        if (!apiKey) throw new Error('Gemini API key is required in settings');
+        if (!modelName) throw new Error('No Gemini model selected in settings');
+
+        const url = `https://generativelanguage.googleapis.com/v1beta/${modelName}:generateContent?key=${apiKey}`;
 
         let systemInstruction = this.geminiSystemPrompt || DEFAULT_SYSTEM_INSTRUCTION;
         systemInstruction = systemInstruction.replace('{{WITS_CONTEXT}}', witsContext);
+        systemInstruction = systemInstruction.replace('{{DATABASE_CONTEXT}}', dbContext);
 
         const response = await fetch(url, {
             method: 'POST',
