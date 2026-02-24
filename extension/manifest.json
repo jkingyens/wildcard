@@ -1,8 +1,8 @@
 {
     "manifest_version": 3,
-    "name": "SQLite Collection Manager",
+    "name": "wildcardCX",
     "version": "1.0.0",
-    "description": "Manage SQLite databases with import/export and checkpoint support",
+    "description": "AI-powered SQLite workspace with Wasm agents and Zig compiler support.",
     "permissions": [
         "storage",
         "sidePanel",
@@ -17,7 +17,7 @@
         "default_path": "sidebar/sidebar.html"
     },
     "action": {
-        "default_title": "Open SQLite Manager"
+        "default_title": "Open wildcardCX"
     },
     "icons": {
         "16": "icons/icon16.png",
