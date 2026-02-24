@@ -335,9 +335,6 @@ class SidebarUI {
         this.aiStatusText = document.getElementById('aiStatusText');
         this.aiGenerateBtn = document.getElementById('aiGenerateBtn');
         this.aiGenerateWasmBtn = document.getElementById('aiGenerateWasmBtn');
-        this.aiExecutionOutput = document.getElementById('aiExecutionOutput');
-        this.aiLogContent = document.getElementById('aiLogContent');
-        this.aiResultValue = document.getElementById('aiResultValue');
 
         // WASM Result Modal elements
         this.wasmResultModal = document.getElementById('wasmResultModal');
@@ -662,6 +659,7 @@ class SidebarUI {
     }
 
     showPacketDetailView(packet) {
+        this.currentPacket = packet;
         this.activePacketGroupId = packet.groupId || null;
         this.packetDetailTitle.textContent = packet.name;
         this.packetDetailCount.textContent = packet.urls.length;
@@ -730,10 +728,23 @@ class SidebarUI {
                         const originalHtml = card.innerHTML;
                         card.style.opacity = '0.7';
                         try {
+                            // If it's a Zig module that hasn't been compiled yet, compile now
+                            if (item.zigCode && !item.data) {
+                                if (typeof compileZigCode === 'undefined') {
+                                    throw new Error('Zig compiler not loaded');
+                                }
+                                this.showNotification('Compiling WASM...', 'info');
+                                const wasmBytes = await compileZigCode(item.zigCode);
+                                item.data = this.arrayBufferToBase64(wasmBytes);
+                                // Save the binary back to the collection so we don't compile next time
+                                await this.saveItemBinaryToPacket(item);
+                            }
+
                             const resp = await this.sendMessage({ action: 'runWasmPacketItem', item });
                             this.showWasmResults(resp.logs, resp.result, resp.success, resp.error);
                         } catch (e) {
-                            this.showNotification('WASM Execution Error', 'error');
+                            console.error('WASM Execution Error:', e);
+                            this.showNotification('WASM Execution Error: ' + e.message, 'error');
                         } finally {
                             card.style.opacity = '1';
                         }
@@ -1333,7 +1344,7 @@ class SidebarUI {
                             <span class="type-badge wasm">WASM</span>
                             ${this.escapeHtml(item.name)}
                         </div>
-                        <div class="constructor-card-url" style="color:var(--text-muted);">Binary Module</div>
+                        <div class="constructor-card-url" style="color:var(--text-muted);">${item.zigCode ? 'Generated Zig Code' : 'Binary Module'}</div>
                     </div>
                     <button class="constructor-remove-btn" title="Remove" data-index="${index}">🗑</button>`;
             } else {
@@ -1411,6 +1422,21 @@ class SidebarUI {
             const saveBtn = document.getElementById('savePacketBtn');
             saveBtn.disabled = false;
             saveBtn.textContent = '💾 Save Packet';
+        }
+    }
+
+    async saveItemBinaryToPacket(item) {
+        if (!this.currentPacket) return;
+        try {
+            // Update the items array in the database
+            await this.sendMessage({
+                action: 'savePacket',
+                name: this.currentPacket.name,
+                urls: this.currentPacket.urls
+            });
+            console.log('Stored compiled binary for', item.name);
+        } catch (err) {
+            console.error('Failed to save updated packet with binary:', err);
         }
     }
 
@@ -1779,7 +1805,6 @@ class SidebarUI {
         this.aiPromptTextarea.value = '';
         this.aiPromptTextarea.focus();
         this.aiStatus.classList.add('hidden');
-        this.aiExecutionOutput.classList.add('hidden');
         this.aiGenerateBtn.disabled = false;
     }
 
@@ -1788,70 +1813,70 @@ class SidebarUI {
     }
 
     async generateWasmWithAi() {
-        const prompt = this.aiPromptTextarea.value.trim();
-        if (!prompt) return;
+        const originalPrompt = this.aiPromptTextarea.value.trim();
+        if (!originalPrompt) return;
 
         this.aiStatus.classList.remove('hidden');
-        this.aiStatusText.textContent = 'Gathering context...';
         this.aiGenerateBtn.disabled = true;
 
-        try {
-            this.aiStatusText.textContent = 'Calling Gemini...';
-            // 2. Call Gemini API
-            const wits = await this.getWitsContext();
-            const dbContext = await this.getDatabaseContext();
-            const zigCode = await this.callGeminiApi(prompt, wits, dbContext);
+        let currentPrompt = originalPrompt;
+        let lastError = null;
+        let lastCode = null;
 
-            // 3. Compile Zig to WASM
-            if (typeof compileZigCode === 'undefined') {
-                throw new Error('Zig compiler not loaded');
+        for (let attempt = 1; attempt <= 3; attempt++) {
+            try {
+                this.aiStatusText.textContent = `Calling Gemini (Attempt #${attempt})...`;
+                const wits = await this.getWitsContext();
+                const dbContext = await this.getDatabaseContext();
+
+                // Augment prompt if this is a retry
+                let finalPrompt = currentPrompt;
+                if (attempt > 1 && lastError) {
+                    finalPrompt = `${originalPrompt}\n\nIMPORTANT: Your previous attempt failed to compile. Please fix the errors below.\n\nPREVIOUS CODE:\n\`\`\`zig\n${lastCode}\n\`\`\`\n\nCOMPILER ERROR:\n${lastError}`;
+                }
+
+                const zigCode = await this.callGeminiApi(finalPrompt, wits, dbContext);
+                lastCode = zigCode;
+
+                // 3. Compile Zig to WASM (Validation)
+                if (typeof compileZigCode === 'undefined') {
+                    throw new Error('Zig compiler not loaded');
+                }
+                this.aiStatusText.textContent = `Validating (Attempt #${attempt})...`;
+                const wasmBytes = await compileZigCode(zigCode, (status) => {
+                    this.aiStatusText.textContent = `${status} (Attempt #${attempt})...`;
+                });
+
+                // Convert binary to base64 for storage
+                const base64 = this.arrayBufferToBase64(wasmBytes);
+
+                // Add to constructor as a Zig module with pre-compiled binary
+                this.constructorItems.push({
+                    type: 'wasm',
+                    name: 'ai_generated.zig',
+                    zigCode: zigCode,
+                    data: base64,
+                    prompt: originalPrompt
+                });
+                this.renderConstructorItems();
+
+                this.showNotification('WASM logic generated, validated, and added to packet!', 'success');
+                this.closeAiPromptModal();
+                return; // Success!
+
+            } catch (error) {
+                lastError = error.message;
+                console.error(`AI generation/validation failed (Attempt #${attempt}):`, error);
+
+                if (attempt < 3) {
+                    this.aiStatusText.textContent = `Error in #${attempt}. Retrying...`;
+                    // Wait a moment before retrying
+                    await new Promise(r => setTimeout(r, 1000));
+                } else {
+                    this.aiStatusText.textContent = 'Final effort failed: ' + error.message;
+                    this.aiGenerateBtn.disabled = false;
+                }
             }
-            const wasmBytes = await compileZigCode(zigCode, (status) => {
-                this.aiStatusText.textContent = status;
-            });
-
-            // 4. Test execution
-            this.aiStatusText.textContent = 'Executing WASM...';
-            this.aiLogContent.textContent = '';
-            const base64 = this.arrayBufferToBase64(wasmBytes);
-            const execResult = await chrome.runtime.sendMessage({
-                action: 'runWasmPacketItem',
-                bytes: base64
-            });
-
-            this.aiStatus.classList.add('hidden');
-            this.aiExecutionOutput.classList.remove('hidden');
-
-            if (execResult.success) {
-                this.aiResultValue.textContent = execResult.result;
-                this.aiResultValue.style.color = '#10b981';
-            } else {
-                this.aiResultValue.textContent = 'Error: ' + execResult.error;
-                this.aiResultValue.style.color = '#ef4444';
-            }
-
-            if (execResult.logs && execResult.logs.length > 0) {
-                this.aiLogContent.textContent = execResult.logs.join('\n');
-            } else {
-                this.aiLogContent.textContent = 'No logs produced.';
-            }
-
-            // 5. Add to constructor
-            this.constructorItems.push({
-                type: 'wasm',
-                name: 'ai_generated.wasm',
-                data: base64,
-                prompt: prompt
-            });
-            this.renderConstructorItems();
-
-            // Note: We don't close the modal immediately so the user can see the logs
-            this.aiGenerateBtn.disabled = false;
-            this.aiGenerateBtn.textContent = 'Regenerate';
-        } catch (error) {
-            console.error('AI generation failed:', error);
-            this.aiStatusText.textContent = 'Error: ' + error.message;
-            this.aiGenerateBtn.disabled = false;
         }
     }
 
