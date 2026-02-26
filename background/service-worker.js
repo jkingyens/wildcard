@@ -34,6 +34,11 @@ chrome.bookmarks.onMoved.addListener(syncBookmarkCache);
 chrome.bookmarks.onChildrenReordered.addListener(syncBookmarkCache);
 chrome.bookmarks.onImportEnded.addListener(syncBookmarkCache);
 
+// Ensure the side panel doesn't intercept the click event so onClicked can fire
+chrome.runtime.onInstalled.addListener(() => {
+    chrome.sidePanel.setPanelBehavior({ openPanelOnActionClick: false }).catch(console.error);
+});
+
 // Robust URL normalization for matching across redirects (protocol, www, trailing slashes, hashes)
 function normalizeUrl(url) {
     if (!url) return '';
@@ -214,7 +219,16 @@ async function initializeSQLite() {
 
 // Open side panel when extension icon is clicked
 chrome.action.onClicked.addListener((tab) => {
-    chrome.sidePanel.open({ windowId: tab.windowId });
+    // Attempt to open the side panel synchronously to preserve user gesture context
+    chrome.sidePanel.open({ windowId: tab.windowId }).catch(console.error);
+
+    // Set a pending action so the sidebar knows what to do when it opens
+    chrome.storage.local.set({ pendingAction: 'newPacketWithTab' }).then(() => {
+        // Send a message in case the sidebar is already open
+        chrome.runtime.sendMessage({ action: 'triggerNewPacketWithTab' }).catch(e => {
+            // Sidebar might not be open yet, which is fine as it will check storage on init
+        });
+    });
 });
 
 // Message handler for sidebar communication

@@ -369,9 +369,30 @@ class SidebarUI {
 
         this.setupEventListeners();
         this.setupMessageListener();
-        this.loadCollections();
-        this.loadSettings();
-        this.checkActivePacket(); // check if we opened inside a packet group
+
+        // Consolidated initialization flow
+        this.initialize();
+    }
+
+    async initialize() {
+        try {
+            // 1. Core setup
+            this.loadSettings();
+            await this.loadCollections();
+
+            // 2. Check for pending actions (highest priority)
+            const { pendingAction } = await chrome.storage.local.get('pendingAction');
+            if (pendingAction === 'newPacketWithTab') {
+                await chrome.storage.local.remove('pendingAction');
+                this.handleTriggerNewPacketWithTab();
+                return; // Initialization complete, pending action took precedence
+            }
+
+            // 3. Fallback to active packet/tab group check
+            await this.checkActivePacket();
+        } catch (e) {
+            console.error('[SidebarUI] Initialization failed:', e);
+        }
     }
 
     setupMessageListener() {
@@ -379,8 +400,15 @@ class SidebarUI {
             if (message.type === 'packetFocused') {
                 this.activeUrl = message.packet.activeUrl || null;
                 this.showPacketDetailView(message.packet);
+            } else if (message.action === 'triggerNewPacketWithTab') {
+                this.handleTriggerNewPacketWithTab();
             }
         });
+    }
+
+    handleTriggerNewPacketWithTab() {
+        this.showConstructorView();
+        this.addCurrentTab();
     }
 
     async checkActivePacket() {
