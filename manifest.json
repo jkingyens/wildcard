@@ -1,8 +1,8 @@
 {
     "manifest_version": 3,
-    "name": "WildcardCX",
+    "name": "Wildcard CX",
     "version": "1.0.0",
-    "description": "Persistent SQLite workspace with Wasm functions and sandboxed code execution.",
+    "description": "Turns your web browser into a web builder",
     "permissions": [
         "storage",
         "sidePanel",
@@ -17,7 +17,7 @@
         "default_path": "sidebar/sidebar.html"
     },
     "action": {
-        "default_title": "Open WildcardCX",
+        "default_title": "Open Wildcard CX",
         "default_icon": {
             "16": "icons/icon16.png",
             "19": "icons/icon19.png",

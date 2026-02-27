@@ -854,7 +854,7 @@ class SidebarUI {
                 card.className = 'packet-link-card wasm';
                 card.innerHTML = `
                     <div class="packet-link-info">
-                        <div class="packet-link-title">🧩 ${this.escapeHtml(item.name)}</div>
+                        <div class="packet-link-title">🧩 ${this.escapeHtml(item.prompt || item.name)}</div>
                         <div class="packet-link-url">Wasm Module</div>
                     </div>
                     <button class="play-btn">Run</button>
@@ -1588,7 +1588,7 @@ class SidebarUI {
                     <div class="constructor-card-info">
                         <div class="constructor-card-title">
                             <span class="type-badge wasm">WASM</span>
-                            ${this.escapeHtml(item.name)}
+                            ${this.escapeHtml(item.prompt || item.name)}
                         </div>
                         <div class="constructor-card-url" style="color:var(--text-muted);">${item.zigCode ? 'AI Generated Logic' : 'Binary Module'}</div>
                     </div>
