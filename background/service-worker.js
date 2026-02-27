@@ -223,13 +223,9 @@ chrome.action.onClicked.addListener((tab) => {
     // Attempt to open the side panel synchronously to preserve user gesture context
     chrome.sidePanel.open({ windowId: tab.windowId }).catch(console.error);
 
-    // Set a pending action so the sidebar knows what to do when it opens
-    chrome.storage.local.set({ pendingAction: 'newPacketWithTab' }).then(() => {
-        // Send a message in case the sidebar is already open
-        chrome.runtime.sendMessage({ action: 'triggerNewPacketWithTab' }).catch(e => {
-            // Sidebar might not be open yet, which is fine as it will check storage on init
-        });
-    });
+    // Send a message in case the sidebar is already open. 
+    // If it's closed, this will fail silently which is exactly what we want.
+    chrome.runtime.sendMessage({ action: 'triggerNewPacketWithTab' }).catch(e => { });
 });
 
 // Message handler for sidebar communication
