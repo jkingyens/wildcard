@@ -407,8 +407,49 @@ class SidebarUI {
     }
 
     handleTriggerNewPacketWithTab() {
-        this.showConstructorView();
-        this.addCurrentTab();
+        if (this.packetDetailView.classList.contains('active') && this.currentPacket) {
+            this.addTabToCurrentPacket();
+        } else {
+            this.showConstructorView();
+            this.addCurrentTab();
+        }
+    }
+
+    async addTabToCurrentPacket() {
+        if (!this.currentPacket) return;
+        try {
+            const resp = await this.sendMessage({ action: 'getCurrentTab' });
+            if (!resp.success) throw new Error(resp.error || 'Could not get current tab');
+            const { title, url } = resp.tab;
+
+            // Avoid duplicates
+            if (this.currentPacket.urls.some(item => {
+                const itemUrl = typeof item === 'string' ? item : item.url;
+                return this.urlsMatch(itemUrl, url);
+            })) {
+                this.showNotification('Tab already in packet', 'error');
+                return;
+            }
+
+            this.currentPacket.urls.push({ type: 'link', title: title || url, url });
+
+            const saveResp = await this.sendMessage({
+                action: 'savePacket',
+                id: this.currentPacket.id,
+                name: this.currentPacket.name,
+                urls: this.currentPacket.urls
+            });
+
+            if (saveResp && saveResp.success) {
+                this.showNotification('Added to current packet', 'success');
+                this.showPacketDetailView(this.currentPacket);
+            } else {
+                throw new Error(saveResp?.error || 'Failed to save packet');
+            }
+        } catch (err) {
+            console.error('addTabToCurrentPacket failed:', err);
+            this.showNotification('Could not add tab: ' + err.message, 'error');
+        }
     }
 
     async checkActivePacket() {

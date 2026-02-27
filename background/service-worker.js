@@ -403,7 +403,14 @@ async function handleMessage(request, sender, sendResponse) {
                     const urlsJson = JSON.stringify(request.urls);
                     const escapedName = request.name.replace(/'/g, "''");
                     const escapedUrls = urlsJson.replace(/'/g, "''");
-                    db.exec(`INSERT INTO packets (name, urls) VALUES ('${escapedName}', '${escapedUrls}')`);
+
+                    if (request.id) {
+                        const id = parseInt(request.id, 10);
+                        db.exec(`UPDATE packets SET name = '${escapedName}', urls = '${escapedUrls}' WHERE rowid = ${id}`);
+                    } else {
+                        db.exec(`INSERT INTO packets (name, urls) VALUES ('${escapedName}', '${escapedUrls}')`);
+                    }
+
                     await sqliteManager.saveCheckpoint('packets', chrome.storage.local);
                     sendResponse({ success: true });
                 } catch (err) {
