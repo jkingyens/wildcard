@@ -370,11 +370,15 @@ class SidebarUI {
         this.setupEventListeners();
         this.setupMessageListener();
 
+        // Global window drag/drop handlers to prevent browser from opening dropped files
+        window.addEventListener('dragover', (e) => e.preventDefault(), false);
+        window.addEventListener('drop', (e) => e.preventDefault(), false);
+
         // Consolidated initialization flow
-        this.initialize();
+        this.init();
     }
 
-    async initialize() {
+    async init() {
         try {
             // 1. Core setup
             this.loadSettings();
@@ -504,6 +508,8 @@ class SidebarUI {
         // Constructor view (packets)
         document.getElementById('constructorBackBtn').addEventListener('click', () => this.showDetailView('packets'));
         document.getElementById('addCurrentTabBtn').addEventListener('click', () => this.addCurrentTab());
+        document.getElementById('addMediaBtn').addEventListener('click', () => document.getElementById('mediaFileInput').click());
+        document.getElementById('mediaFileInput').addEventListener('change', (e) => this.handleMediaFileSelect(e));
         document.getElementById('addWasmBtn').addEventListener('click', () => document.getElementById('wasmFileInput').click());
         document.getElementById('wasmFileInput').addEventListener('change', (e) => this.handleWasmFileSelect(e));
         document.getElementById('savePacketBtn').addEventListener('click', () => this.savePacket());
@@ -554,6 +560,13 @@ class SidebarUI {
         document.getElementById('witSaveBtn').addEventListener('click', () => this.saveWit());
         document.getElementById('witDeleteBtn').addEventListener('click', () => this.deleteWit());
 
+        // Drop zone handlers
+        const dropZone = document.getElementById('mediaDropZone');
+        dropZone.addEventListener('dragover', (e) => this.handleMediaDragOver(e));
+        dropZone.addEventListener('dragleave', () => dropZone.classList.remove('drag-active'));
+        dropZone.addEventListener('drop', (e) => this.handleMediaDrop(e));
+        dropZone.addEventListener('click', () => document.getElementById('mediaFileInput').click());
+
         // AI Prompt Modal
         document.getElementById('aiGenerateWasmBtn').addEventListener('click', () => this.openAiPromptModal());
         document.getElementById('aiModalCloseBtn').addEventListener('click', () => this.closeAiPromptModal());
@@ -570,6 +583,16 @@ class SidebarUI {
 
     // ===== NAVIGATION =====
 
+    showView(viewId) {
+        this.hideAllViews();
+        const view = document.getElementById(viewId);
+        if (view) {
+            view.classList.add('active');
+        } else {
+            console.error(`[SidebarUI] View not found: ${viewId}`);
+        }
+    }
+
     hideAllViews() {
         this.listView.classList.remove('active');
         this.detailView.classList.remove('active');
@@ -582,24 +605,21 @@ class SidebarUI {
     }
 
     showListView() {
-        this.hideAllViews();
-        this.listView.classList.add('active');
+        this.showView('listView');
         this.currentCollection = null;
         this.loadCollections();
     }
 
     showDetailView(collectionName) {
-        this.hideAllViews();
         this.currentCollection = collectionName;
         this.detailTitle.textContent = collectionName;
-        this.detailView.classList.add('active');
+        this.showView('detailView');
         this.loadCollectionDetail(collectionName);
     }
 
     showWitsView() {
-        this.hideAllViews();
         this.currentCollection = 'wits';
-        this.witsView.classList.add('active');
+        this.showView('witsView');
         this.loadWits();
     }
 
@@ -645,8 +665,7 @@ class SidebarUI {
     }
 
     showWitEditorView(wit = null) {
-        this.hideAllViews();
-        this.witEditorView.classList.add('active');
+        this.showView('witEditorView');
 
         if (wit) {
             this.currentWitId = wit.id;
@@ -768,130 +787,156 @@ class SidebarUI {
             } catch (e) { }
         }
 
-        this.packetDetailTitle.textContent = packet.name;
-        this.packetDetailCount.textContent = packet.urls.length;
+        this.showView('packetDetailView');
+        document.getElementById('packetDetailTitle').textContent = packet.name;
 
-        // Initialize empty sections
-        this.packetLinkList.innerHTML = '';
+        // Target new sections
+        const linkList = document.getElementById('packetLinkList');
+        const mediaList = document.getElementById('packetMediaList');
+        const wasmList = document.getElementById('packetWasmList');
 
-        const sections = {
-            link: { title: 'Links', items: [] },
-            wasm: { title: 'Functions', items: [] },
-            media: { title: 'Media', items: [] }
-        };
+        linkList.innerHTML = '';
+        mediaList.innerHTML = '';
+        wasmList.innerHTML = '';
 
-        // Categorize items
-        packet.urls.forEach(item => {
-            let type = 'link';
-            if (typeof item === 'object') {
-                type = item.type || 'link';
-            }
-            if (sections[type]) {
-                sections[type].items.push(item);
-            } else {
-                sections.link.items.push(item);
+        let linkCount = 0;
+        let mediaCount = 0;
+        let wasmCount = 0;
+
+        packet.urls.forEach((item, index) => {
+            const type = (typeof item === 'object') ? (item.type || 'link') : 'link';
+            if (type === 'link') {
+                linkCount++;
+                const url = typeof item === 'string' ? item : item.url;
+                const card = document.createElement('div');
+                const isActive = this.urlsMatch(url, this.activeUrl);
+                card.className = `packet-link-card ${isActive ? 'active' : ''}`;
+
+                let hostname;
+                try { hostname = new URL(url).hostname; } catch (e) { hostname = 'Unknown'; }
+
+                const faviconUrl = `https://www.google.com/s2/favicons?domain=${hostname}&sz=32`;
+                card.innerHTML = `
+                    <img src="${faviconUrl}" class="packet-link-favicon" onerror="this.src='data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjQgMjQ+PHBhdGggZmlsbD0iI2NjYyIgZD0iTTEyIDJDNi40OCAyIDIgNi40OCAyIDEyczQuNDggMTAgMTAgMTAgMTAtNC40OCAxMC0xMFMxNy41MiAyIDEyIDJ6bS0xIDE3LjkyVjE5aC0ydjMtLjA4QzUuNjEgMTguNTMgMi41IDE1LjEyIDIuNSAxMWMwLS45OC4xOC0xLjkyLjUtMi44bDMuNTUgMy41NVYxOS45MnpNMjEgMTEuMzhWMTJjMCA0LjQxLTMuNiA4LTggOGgtMXYtMmgtMmwtMy0zVjlsMy0zIDIuMSAyLjFjLjIxLS42My42OC0xLjExIDEuNC0xLjExLjgzIDAgMS41LjY3IDEuNSAxLjV2My41aDN2LTNoMS42MWwuMzktLjM5YzIuMDEgMS4xMSAzLjUgMy4zNSAzLjUgNS44OHoiLz48L3N2Zz4='">
+                    <div class="packet-link-info">
+                        <div class="packet-link-hostname">${this.escapeHtml(hostname)}</div>
+                        <div class="packet-link-url">${this.escapeHtml(url)}</div>
+                    </div>
+                `;
+                card.addEventListener('click', async () => {
+                    const resp = await this.sendMessage({ action: 'openTabInGroup', url, groupId: this.activePacketGroupId, packetId: packet.id });
+                    if (resp && resp.success && resp.newGroupId) {
+                        this.activePacketGroupId = resp.newGroupId;
+                    }
+                });
+                linkList.appendChild(card);
+            } else if (type === 'media') {
+                mediaCount++;
+                const card = document.createElement('div');
+                card.className = 'packet-media-card';
+                const isImage = item.mimeType?.startsWith('image/');
+                const icon = isImage ? '🖼️' : (item.mimeType?.startsWith('video/') ? '🎬' : '🎵');
+                card.innerHTML = `
+                    <div class="packet-media-preview" id="detail-preview-${item.mediaId}-${index}">${icon}</div>
+                    <div class="packet-media-info">
+                        <div class="packet-media-name">${this.escapeHtml(item.name)}</div>
+                        <div class="packet-media-meta">${item.mimeType} • ${(item.size / 1024 / 1024).toFixed(2)} MB</div>
+                    </div>
+                `;
+                if (isImage) {
+                    this.loadMediaThumbnail(item.mediaId, `detail-preview-${item.mediaId}-${index}`);
+                }
+                card.addEventListener('click', () => this.playMedia(item));
+                mediaList.appendChild(card);
+            } else if (type === 'wasm') {
+                wasmCount++;
+                const card = document.createElement('div');
+                card.className = 'packet-link-card wasm';
+                card.innerHTML = `
+                    <div class="packet-link-info">
+                        <div class="packet-link-title">🧩 ${this.escapeHtml(item.name)}</div>
+                        <div class="packet-link-url">Wasm Module</div>
+                    </div>
+                    <button class="play-btn">Run</button>
+                `;
+                card.querySelector('.play-btn').addEventListener('click', (e) => {
+                    e.stopPropagation();
+                    this.runWasm(item);
+                });
+                wasmList.appendChild(card);
             }
         });
 
-        // Helper to render section
-        const renderSection = (type, data) => {
-            const sectionDiv = document.createElement('div');
-            sectionDiv.className = 'packet-section';
+        document.getElementById('packetDetailCount').textContent = linkCount;
+        document.getElementById('packetMediaCount').textContent = mediaCount;
+        document.getElementById('packetWasmCount').textContent = wasmCount;
 
-            const header = document.createElement('div');
-            header.className = 'packet-section-header';
-            header.innerHTML = `<span>${data.title}</span> <span class="count">${data.items.length}</span>`;
-            sectionDiv.appendChild(header);
+        if (linkCount === 0) linkList.innerHTML = '<p class="hint">No links in this packet.</p>';
+        if (mediaCount === 0) mediaList.innerHTML = '<p class="hint">No media in this packet.</p>';
+        if (wasmCount === 0) wasmList.innerHTML = '<p class="hint">No Wasm modules in this packet.</p>';
+    }
 
-            if (data.items.length === 0) {
-                const empty = document.createElement('div');
-                empty.className = 'packet-section-empty';
-                empty.textContent = `No ${data.title.toLowerCase()} yet.`;
-                sectionDiv.appendChild(empty);
-            } else {
-                data.items.forEach(item => {
-                    const itemType = type; // closure check
-                    if (itemType === 'link') {
-                        const url = typeof item === 'string' ? item : item.url;
-                        const card = document.createElement('div');
-                        const isActive = this.urlsMatch(url, this.activeUrl);
-                        card.className = `packet-link-card ${isActive ? 'active' : ''}`;
-                        card.draggable = false;
+    handleMediaDragOver(e) {
+        e.preventDefault();
+        e.stopPropagation();
+        e.dataTransfer.dropEffect = 'copy';
+        document.getElementById('mediaDropZone').classList.add('drag-active');
+    }
 
-                        let hostname;
-                        try {
-                            hostname = new URL(url).hostname;
-                        } catch (e) { hostname = 'Unknown'; }
+    async handleMediaDrop(e) {
+        e.preventDefault();
+        e.stopPropagation();
+        const dropZone = document.getElementById('mediaDropZone');
+        dropZone.classList.remove('drag-active');
 
-                        const faviconUrl = `https://www.google.com/s2/favicons?domain=${hostname}&sz=32`;
-                        card.innerHTML = `
-                            <img src="${faviconUrl}" class="packet-link-favicon" onerror="this.src='data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAyNCAyNCI+PHBhdGggZmlsbD0iI2NjYyIgZD0iTTEyIDJDNi40OCAyIDIgNi40OCAyIDEyczQuNDggMTAgMTAgMTAgMTAtNC40OCAxMC0xMFMxNy41MiAyIDEyIDJ6bS0xIDE3LjkyVjE5aC0ydjMtLjA4QzUuNjEgMTguNTMgMi41IDE1LjEyIDIuNSAxMWMwLS45OC4xOC0xLjkyLjUtMi44bDMuNTUgMy41NVYxOS45MnpNMjEgMTEuMzhWMTJjMCA0LjQxLTMuNiA4LTggOGgtMXYtMmgtMmwtMy0zVjlsMy0zIDIuMSAyLjFjLjIxLS42My42OC0xLjExIDEuNC0xLjExLjgzIDAgMS41LjY3IDEuNSAxLjV2My41aDN2LTNoMS42MWwuMzktLjM5YzIuMDEgMS4xMSAzLjUgMy4zNSAzLjUgNS44OHoiLz48L3N2Zz4='">
-                            <div class="packet-link-info">
-                                <div class="packet-link-hostname">${this.escapeHtml(hostname)}</div>
-                                <div class="packet-link-url">${this.escapeHtml(url)}</div>
-                            </div>
-                        `;
-                        card.addEventListener('click', async () => {
-                            const resp = await this.sendMessage({ action: 'openTabInGroup', url, groupId: this.activePacketGroupId, packetId: packet.id });
-                            if (resp && resp.success && resp.newGroupId) {
-                                this.activePacketGroupId = resp.newGroupId;
-                            }
-                        });
-                        sectionDiv.appendChild(card);
-                    } else if (itemType === 'wasm') {
-                        const card = document.createElement('div');
-                        card.className = 'packet-link-card wasm';
-                        card.draggable = false;
-                        card.title = 'Click to run main()';
-                        card.innerHTML = `
-                            <span style="font-size:16px;">🧩</span>
-                            <div class="packet-link-info">
-                                <div class="packet-link-hostname">WASM Function</div>
-                                <div class="packet-link-url">${this.escapeHtml(item.name)}</div>
-                                ${item.prompt ? `<div class="wasm-prompt">Prompt: "${this.escapeHtml(item.prompt)}"</div>` : ''}
-                            </div>
-                            <span class="packet-link-arrow">▶</span>
-                        `;
-                        card.addEventListener('click', async () => {
-                            const originalHtml = card.innerHTML;
-                            card.style.opacity = '0.7';
-                            try {
-                                // If it's a Zig module that hasn't been compiled yet, compile now
-                                if (item.zigCode && !item.data) {
-                                    if (typeof compileZigCode === 'undefined') {
-                                        throw new Error('Internal compiler not loaded');
-                                    }
-                                    this.showNotification('Compiling WASM...', 'info');
-                                    const wasmBytes = await compileZigCode(item.zigCode);
-                                    item.data = this.arrayBufferToBase64(wasmBytes);
-                                    // Save the binary back to the collection so we don't compile next time
-                                    await this.saveItemBinaryToPacket(item);
-                                }
+        const files = Array.from(e.dataTransfer.files);
+        if (files.length === 0) return;
 
-                                const resp = await this.sendMessage({ action: 'runWasmPacketItem', item });
-                                this.showWasmResults(resp.logs, resp.result, resp.success, resp.error);
-                            } catch (e) {
-                                console.error('WASM Execution Error:', e);
-                                this.showNotification('WASM Execution Error: ' + e.message, 'error');
-                            } finally {
-                                card.style.opacity = '1';
-                            }
-                        });
-                        sectionDiv.appendChild(card);
-                    }
+        // Filter for media types
+        const mediaFiles = files.filter(f => f.type.startsWith('image/') || f.type.startsWith('video/') || f.type.startsWith('audio/'));
+        if (mediaFiles.length === 0) {
+            this.showNotification('Only image, video, and audio files are supported.', 'error');
+            return;
+        }
+
+        this.showNotification(`Uploading ${mediaFiles.length} files...`, 'info');
+
+        for (const file of mediaFiles) {
+            try {
+                const arrayBuffer = await file.arrayBuffer();
+                const resp = await this.sendMessage({
+                    action: 'saveMediaBlob',
+                    data: Array.from(new Uint8Array(arrayBuffer)),
+                    type: file.type
                 });
+
+                if (resp && resp.success) {
+                    this.currentPacket.urls.push({
+                        type: 'media',
+                        name: file.name,
+                        mediaId: resp.id,
+                        mimeType: file.type,
+                        size: file.size
+                    });
+                }
+            } catch (err) {
+                console.error('Drop upload failed:', err);
             }
-            this.packetLinkList.appendChild(sectionDiv);
-        };
+        }
 
-        // Render sections in order
-        renderSection('link', sections.link);
-        renderSection('wasm', sections.wasm);
-        renderSection('media', sections.media);
-
-        // Switch view
-        this.hideAllViews();
-        this.packetDetailView.classList.add('active');
+        // Save packet update
+        try {
+            await this.sendMessage({
+                action: 'savePacket',
+                id: this.currentPacket.id,
+                name: this.currentPacket.name,
+                urls: this.currentPacket.urls
+            });
+            this.showPacketDetailView(this.currentPacket);
+            this.showNotification('Packet updated with new media', 'success');
+        } catch (err) {
+            this.showNotification('Failed to update packet: ' + err.message, 'error');
+        }
     }
 
     showConstructorView() {
@@ -902,8 +947,7 @@ class SidebarUI {
         saveBtn.disabled = false;
         saveBtn.textContent = '💾 Save Packet';
         this.renderConstructorItems();
-        this.hideAllViews();
-        this.constructorView.classList.add('active');
+        this.showView('constructorView');
     }
 
     showSchemaConstructorView() {
@@ -912,8 +956,7 @@ class SidebarUI {
         const saveBtn = document.getElementById('saveSchemaRepoBtn');
         saveBtn.disabled = false;
         saveBtn.textContent = '💾 Save Schema';
-        this.hideAllViews();
-        this.schemaConstructorView.classList.add('active');
+        this.showView('schemaConstructorView');
         this.schemaRepoNameInput.focus();
     }
 
@@ -1239,6 +1282,41 @@ class SidebarUI {
         }
     }
 
+    async loadMediaThumbnail(mediaId, elementId) {
+        try {
+            const resp = await this.sendMessage({ action: 'getMediaBlob', id: mediaId });
+            if (resp && resp.success) {
+                const blob = new Blob([new Uint8Array(resp.data)], { type: resp.type });
+                const url = URL.createObjectURL(blob);
+                const container = document.getElementById(elementId);
+                if (container) {
+                    container.innerHTML = `<img src="${url}" alt="Thumbnail">`;
+                }
+            }
+        } catch (e) {
+            console.error('Thumbnail load failed:', e);
+        }
+    }
+
+    async playMedia(item) {
+        try {
+            // Open media in a new tab using the media.html shell
+            // and include it in the current packet's group if applicable
+            const mediaUrl = chrome.runtime.getURL(`sidebar/media.html?id=${item.mediaId}&type=${encodeURIComponent(item.mimeType)}&name=${encodeURIComponent(item.name)}`);
+
+            await this.sendMessage({
+                action: 'openTabInGroup',
+                url: mediaUrl,
+                packetId: this.currentPacket.id
+            });
+
+            this.showNotification(`Opening ${item.name} in tab`, 'success');
+        } catch (e) {
+            console.error('playMedia failed:', e);
+            this.showNotification('Failed to open media: ' + e.message, 'error');
+        }
+    }
+
     // ===== SCHEMAS COLLECTION =====
 
     async loadSchemas() {
@@ -1431,6 +1509,40 @@ class SidebarUI {
         }
     }
 
+    async handleMediaFileSelect(event) {
+        const files = Array.from(event.target.files);
+        if (files.length === 0) return;
+
+        for (const file of files) {
+            try {
+                const arrayBuffer = await file.arrayBuffer();
+                const resp = await this.sendMessage({
+                    action: 'saveMediaBlob',
+                    data: Array.from(new Uint8Array(arrayBuffer)),
+                    type: file.type
+                });
+
+                if (resp && resp.success) {
+                    this.constructorItems.push({
+                        type: 'media',
+                        name: file.name,
+                        mediaId: resp.id,
+                        mimeType: file.type,
+                        size: file.size
+                    });
+                    this.showNotification(`Added ${file.name}`, 'success');
+                } else {
+                    throw new Error(resp?.error || 'Failed to save media');
+                }
+            } catch (err) {
+                console.error('handleMediaFileSelect failed:', err);
+                this.showNotification(`Failed to add ${file.name}: ${err.message}`, 'error');
+            }
+        }
+        this.renderConstructorItems();
+        event.target.value = '';
+    }
+
     async handleWasmFileSelect(event) {
         const file = event.target.files[0];
         if (!file) return;
@@ -1479,6 +1591,20 @@ class SidebarUI {
                             ${this.escapeHtml(item.name)}
                         </div>
                         <div class="constructor-card-url" style="color:var(--text-muted);">${item.zigCode ? 'AI Generated Logic' : 'Binary Module'}</div>
+                    </div>
+                    <button class="constructor-remove-btn" title="Remove" data-index="${index}">🗑</button>`;
+            } else if (item.type === 'media') {
+                card.classList.add('media');
+                const isImage = item.mimeType.startsWith('image/');
+                const icon = isImage ? '🖼️' : (item.mimeType.startsWith('video/') ? '🎬' : '🎵');
+                card.innerHTML = `
+                    <span class="drag-handle" title="Drag to reorder">⠿</span>
+                    <div class="constructor-card-info">
+                        <div class="constructor-card-title">
+                            <span class="type-badge media">MEDIA</span>
+                            ${this.escapeHtml(item.name)}
+                        </div>
+                        <div class="constructor-card-url" style="color:var(--text-muted);">${icon} ${item.mimeType} (${(item.size / 1024 / 1024).toFixed(2)} MB)</div>
                     </div>
                     <button class="constructor-remove-btn" title="Remove" data-index="${index}">🗑</button>`;
             } else {
@@ -1832,10 +1958,9 @@ class SidebarUI {
         }, 3000);
     }
     showSettingsView() {
-        this.hideAllViews();
         this.geminiApiKeyInput.value = this.geminiApiKey;
         this.geminiSystemPromptInput.value = this.geminiSystemPrompt || DEFAULT_SYSTEM_INSTRUCTION;
-        this.settingsView.classList.add('active');
+        this.showView('settingsView');
         this.themeSelect.value = this.theme;
         this.renderModelSelect();
     }

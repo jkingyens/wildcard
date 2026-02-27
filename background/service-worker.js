@@ -4,9 +4,10 @@
  */
 
 // Import scripts in service worker context (paths relative to extension root)
-self.importScripts('../sql-wasm.js', '../src/sqlite-manager.js');
+self.importScripts('../sql-wasm.js', '../src/sqlite-manager.js', '../src/blob-storage.js');
 
 let sqliteManager = null;
+const blobStorage = new BlobStorage();
 let SQL = null;
 let initialized = false;
 let initializing = null; // Lock for initialization
@@ -487,6 +488,34 @@ async function handleMessage(request, sender, sendResponse) {
                     const [id, name, urlsJson] = result[0].values[0];
                     sendResponse({ success: true, packet: { id, name, urls: JSON.parse(urlsJson) } });
                 } catch (err) {
+                    sendResponse({ success: false, error: err.message });
+                }
+                break;
+            }
+            case 'saveMediaBlob': {
+                try {
+                    const blob = new Blob([new Uint8Array(request.data)], { type: request.type });
+                    const id = await blobStorage.generateId(blob);
+                    await blobStorage.put(id, blob);
+                    sendResponse({ success: true, id });
+                } catch (err) {
+                    console.error('saveMediaBlob error:', err);
+                    sendResponse({ success: false, error: err.message });
+                }
+                break;
+            }
+            case 'getMediaBlob': {
+                try {
+                    const blob = await blobStorage.get(request.id);
+                    if (!blob) throw new Error('Blob not found');
+                    const arrayBuffer = await blob.arrayBuffer();
+                    sendResponse({
+                        success: true,
+                        data: Array.from(new Uint8Array(arrayBuffer)),
+                        type: blob.type
+                    });
+                } catch (err) {
+                    console.error('getMediaBlob error:', err);
                     sendResponse({ success: false, error: err.message });
                 }
                 break;

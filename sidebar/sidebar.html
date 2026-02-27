@@ -129,6 +129,8 @@
       <button id="packetDetailBackBtn" class="back-btn">← Packets</button>
       <h2 id="packetDetailTitle" class="detail-title"></h2>
     </header>
+
+    <!-- Links Section -->
     <section class="detail-section">
       <div class="section-header">
         <h3>🔗 Links</h3>
@@ -136,6 +138,32 @@
       </div>
       <div id="packetLinkList" class="packet-link-list">
         <p class="hint">No links in this packet.</p>
+      </div>
+    </section>
+
+    <!-- Media Section -->
+    <section class="detail-section">
+      <div class="section-header">
+        <h3>🖼️ Media</h3>
+        <span id="packetMediaCount" class="badge">0</span>
+      </div>
+      <div id="mediaDropZone" class="media-drop-zone">
+        <div class="drop-zone-icon">📥</div>
+        <p>Drop media files here</p>
+      </div>
+      <div id="packetMediaList" class="packet-media-list" style="margin-top: 10px;">
+        <p class="hint">No media in this packet.</p>
+      </div>
+    </section>
+
+    <!-- Wasm Section -->
+    <section class="detail-section">
+      <div class="section-header">
+        <h3>🧩 Wasm</h3>
+        <span id="packetWasmCount" class="badge">0</span>
+      </div>
+      <div id="packetWasmList" class="packet-wasm-list">
+        <p class="hint">No Wasm modules in this packet.</p>
       </div>
     </section>
   </div>
@@ -150,9 +178,11 @@
     <div class="constructor-body">
       <div class="constructor-actions">
         <button id="addCurrentTabBtn" class="btn btn-secondary">＋ Add Current Tab</button>
+        <button id="addMediaBtn" class="btn btn-secondary">＋ Add Media</button>
         <button id="addWasmBtn" class="btn btn-secondary">＋ Add WASM</button>
         <button id="aiGenerateWasmBtn" class="btn btn-secondary hidden">✨ Generate WASM</button>
         <input type="file" id="wasmFileInput" accept=".wasm" style="display: none;">
+        <input type="file" id="mediaFileInput" accept="image/*,video/*,audio/*" multiple style="display: none;">
       </div>
       <div id="constructorList" class="constructor-list">
         <p class="hint constructor-empty">No tabs added yet. Click "Add Current Tab" to start.</p>
