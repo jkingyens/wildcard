@@ -58,7 +58,8 @@ body {
   color: var(--text);
   line-height: 1.6;
   width: 100%;
-  min-height: 100vh;
+  height: 100vh;
+  overflow: hidden;
 }
 
 /* ===== VIEWS ===== */
@@ -68,7 +69,10 @@ body {
 }
 
 .view.active {
-  display: block;
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  padding: 20px;
 }
 
 /* ===== HEADER ===== */
@@ -95,6 +99,7 @@ h1 {
   display: flex;
   flex-direction: column;
   gap: 6px;
+  flex-shrink: 0;
 }
 
 .back-btn {
@@ -215,9 +220,12 @@ h1 {
 }
 
 .collections-list {
+  flex: 1;
   display: flex;
   flex-direction: column;
   gap: 10px;
+  overflow-y: auto;
+  min-height: 0;
 }
 
 .collection-item {
@@ -271,6 +279,7 @@ h1 {
   padding: 14px;
   margin-top: 14px;
   box-shadow: var(--shadow);
+  flex-shrink: 0;
 }
 
 .section-header {
@@ -323,8 +332,16 @@ h1 {
 }
 
 /* Entries list */
+#entriesSection {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  flex-shrink: 1;
+}
+
 .entries-content {
-  max-height: 240px;
+  flex: 1;
   overflow-y: auto;
 }
 
@@ -358,6 +375,7 @@ h1 {
   display: flex;
   gap: 8px;
   flex-wrap: wrap;
+  margin-bottom: 0;
 }
 
 /* ===== MODAL ===== */
