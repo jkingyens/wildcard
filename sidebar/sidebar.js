@@ -2157,6 +2157,25 @@ class SidebarUI {
         }
     }
 
+    async runWasm(item) {
+        if (!item.data) {
+            this.showNotification('WASM module has no data', 'error');
+            return;
+        }
+
+        try {
+            const resp = await this.sendMessage({ action: 'runWasmPacketItem', item });
+            if (resp.success) {
+                this.showWasmResults(resp.logs, resp.result, true);
+            } else {
+                this.showWasmResults(resp.logs, null, false, resp.error);
+            }
+        } catch (error) {
+            console.error('WASM run error:', error);
+            this.showWasmResults([], null, false, error.message);
+        }
+    }
+
     showWasmResults(logs, result, success, error) {
         this.wasmResultModal.classList.remove('hidden');
 
