@@ -376,6 +376,11 @@ class SidebarUI {
 
         // Consolidated initialization flow
         this.init();
+
+        // Deactivate clipper when sidebar is closed
+        window.addEventListener('unload', () => {
+            this.setClipperActive(false);
+        });
     }
 
     async init() {
@@ -404,8 +409,11 @@ class SidebarUI {
             if (message.type === 'packetFocused') {
                 this.activeUrl = message.packet.activeUrl || null;
                 this.showPacketDetailView(message.packet);
+                this.updateClipperState();
             } else if (message.action === 'triggerNewPacketWithTab') {
                 this.handleTriggerNewPacketWithTab();
+            } else if (message.type === 'CLIPPER_REGION_SELECTED') {
+                this.handleClipperRegionSelected(message.region);
             }
         });
     }
@@ -588,6 +596,7 @@ class SidebarUI {
         const view = document.getElementById(viewId);
         if (view) {
             view.classList.add('active');
+            this.updateClipperState();
         } else {
             console.error(`[SidebarUI] View not found: ${viewId}`);
         }
@@ -2276,6 +2285,112 @@ class SidebarUI {
             binary += String.fromCharCode(bytes[i]);
         }
         return btoa(binary);
+    }
+
+    async updateClipperState() {
+        const isDetailView = this.packetDetailView.classList.contains('active');
+        if (!isDetailView || !this.currentPacket) {
+            this.setClipperActive(false);
+            return;
+        }
+
+        try {
+            const resp = await this.sendMessage({ action: 'getCurrentTab' });
+            if (!resp.success) {
+                this.setClipperActive(false);
+                return;
+            }
+
+            const currentUrl = resp.tab.url;
+            const isInPacket = this.currentPacket.urls.some(item => {
+                const itemUrl = typeof item === 'string' ? item : item.url;
+                return itemUrl && this.urlsMatch(itemUrl, currentUrl);
+            });
+
+            this.setClipperActive(isInPacket);
+        } catch (err) {
+            this.setClipperActive(false);
+        }
+    }
+
+    async setClipperActive(active) {
+        const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+        if (tab) {
+            chrome.tabs.sendMessage(tab.id, { type: 'SET_CLIPPER_ACTIVE', active }).catch(() => { });
+        }
+    }
+
+    async handleClipperRegionSelected(region) {
+        try {
+            const resp = await this.sendMessage({ action: 'captureVisibleTab' });
+            if (!resp.success) throw new Error(resp.error);
+
+            const img = new Image();
+            img.src = resp.dataUrl;
+            await new Promise(r => img.onload = r);
+
+            const canvas = document.createElement('canvas');
+            const ctx = canvas.getContext('2d');
+            const dpr = region.devicePixelRatio || 1;
+
+            canvas.width = region.width * dpr;
+            canvas.height = region.height * dpr;
+
+            ctx.drawImage(
+                img,
+                region.x * dpr,
+                region.y * dpr,
+                region.width * dpr,
+                region.height * dpr,
+                0,
+                0,
+                region.width * dpr,
+                region.height * dpr
+            );
+
+            const blob = await new Promise(resolve => canvas.toBlob(resolve, 'image/png'));
+            const arrayBuffer = await blob.arrayBuffer();
+
+            const saveResp = await this.sendMessage({
+                action: 'saveMediaBlob',
+                data: Array.from(new Uint8Array(arrayBuffer)),
+                type: 'image/png'
+            });
+
+            if (saveResp && saveResp.success) {
+                const name = `Clip ${new Date().toLocaleString()}`;
+                const newMediaItem = {
+                    type: 'media',
+                    name: name,
+                    mediaId: saveResp.id,
+                    mimeType: 'image/png',
+                    size: blob.size
+                };
+                this.currentPacket.urls.push(newMediaItem);
+
+                await this.sendMessage({
+                    action: 'savePacket',
+                    id: this.currentPacket.id,
+                    name: this.currentPacket.name,
+                    urls: this.currentPacket.urls
+                });
+
+                this.showPacketDetailView(this.currentPacket);
+
+                // Highlight the new item
+                setTimeout(() => {
+                    const cards = document.querySelectorAll('.packet-media-card');
+                    const lastCard = cards[cards.length - 1];
+                    if (lastCard) {
+                        lastCard.classList.add('new-clip-animation');
+                        lastCard.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+                    }
+                }, 100);
+            }
+        } catch (err) {
+            console.error('Clipping failed:', err);
+            this.showNotification('Clipping failed: ' + err.message, 'error');
+        }
     }
 }
 

@@ -8,7 +8,11 @@
         "sidePanel",
         "tabs",
         "tabGroups",
-        "bookmarks"
+        "bookmarks",
+        "activeTab"
+    ],
+    "host_permissions": [
+        "<all_urls>"
     ],
     "background": {
         "service_worker": "background/service-worker.js"
@@ -51,6 +55,18 @@
             "matches": [
                 "<all_urls>"
             ]
+        }
+    ],
+    "content_scripts": [
+        {
+            "matches": [
+                "<all_urls>"
+            ],
+            "js": [
+                "src/clipper.js"
+            ],
+            "all_frames": false,
+            "run_at": "document_idle"
         }
     ]
 }

@@ -358,26 +358,13 @@ async function handleMessage(request, sender, sendResponse) {
                         if (tabsInGroup.length > 0) {
                             await chrome.tabs.update(tabsInGroup[0].id, { active: true });
                             sendResponse({ success: true, groupId: existingGroupId });
-                            return; // Use return instead of break to avoid falling through
+                            return;
                         }
                     }
 
-                    const tabIds = [];
-                    for (const url of links) {
-                        const tab = await chrome.tabs.create({ url, active: false });
-                        tabIds.push(tab.id);
-                    }
-
-                    const groupId = await chrome.tabs.group({ tabIds });
-                    await chrome.tabGroups.update(groupId, { title: name, color: 'blue' });
-
-                    const groupData = await chrome.storage.local.get('activeGroups');
-                    const updatedActiveGroups = groupData.activeGroups || {};
-                    updatedActiveGroups[groupId] = request.id;
-                    await chrome.storage.local.set({ activeGroups: updatedActiveGroups });
-
-                    await chrome.tabs.update(tabIds[0], { active: true });
-                    sendResponse({ success: true, groupId });
+                    // Lazy load: don't open all links anymore. 
+                    // The sidebar detail view will show the items and user can click them.
+                    sendResponse({ success: true, message: 'Packet focused in sidebar' });
                 } catch (error) {
                     console.error('Failed to play packet:', error);
                     sendResponse({ success: false, error: error.message });
@@ -830,6 +817,21 @@ async function handleMessage(request, sender, sendResponse) {
                     console.error('WASM error:', err);
                     sendResponse({ success: false, error: err.message });
                 }
+                break;
+            }
+            case 'captureVisibleTab': {
+                try {
+                    const dataUrl = await chrome.tabs.captureVisibleTab(null, { format: 'png' });
+                    sendResponse({ success: true, dataUrl });
+                } catch (err) {
+                    sendResponse({ success: false, error: err.message });
+                }
+                break;
+            }
+            case 'CLIPPER_REGION_SELECTED': {
+                // Forward content script message to the sidebar
+                chrome.runtime.sendMessage(request).catch(() => { });
+                sendResponse({ success: true });
                 break;
             }
             default:
