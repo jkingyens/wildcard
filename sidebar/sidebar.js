@@ -2178,7 +2178,7 @@ class SidebarUI {
 
                 const newWasmItem = {
                     type: 'wasm',
-                    name: 'ai_generated.zig',
+                    name: 'Function',
                     zigCode: zigCode,
                     data: base64,
                     prompt: originalPrompt
@@ -2199,7 +2199,7 @@ class SidebarUI {
                     this.renderConstructorItems();
                 }
 
-                this.showNotification('WASM logic generated, validated, and added!', 'success');
+                this.showNotification('Logic generated, validated, and added!', 'success');
                 this.closeAiPromptModal();
                 return; // Success!
 
@@ -2221,7 +2221,7 @@ class SidebarUI {
 
     async runWasm(item) {
         if (!item.data) {
-            this.showNotification('WASM module has no data', 'error');
+            this.showNotification('Function has no data', 'error');
             return;
         }
 

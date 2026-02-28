@@ -52,7 +52,7 @@
         <label>Gemini API Key</label>
         <input type="password" id="geminiApiKeyInput" placeholder="Enter your Gemini API key" class="form-input"
           style="margin-bottom:10px;">
-        <p class="hint">The API key is required for the "Generate WASM" feature.</p>
+        <p class="hint">The API key is required for the "Generate Functions" feature.</p>
       </div>
       <div class="form-group" style="margin-top: 10px;">
         <label>Gemini Model</label>
@@ -156,17 +156,18 @@
       </div>
     </section>
 
-    <!-- Wasm Section -->
+    <!-- Functions Section -->
     <section class="detail-section">
       <div class="section-header">
-        <h3>🧩 Wasm</h3>
+        <h3>🧩 Functions</h3>
         <div style="display: flex; gap: 8px; align-items: center;">
-          <button id="aiGenerateWasmDetailBtn" class="btn btn-secondary btn-sm" title="Generate Wasm with AI">✨</button>
+          <button id="aiGenerateWasmDetailBtn" class="btn btn-secondary btn-sm"
+            title="Generate Function with AI">✨</button>
           <span id="packetWasmCount" class="badge">0</span>
         </div>
       </div>
       <div id="packetWasmList" class="packet-wasm-list">
-        <p class="hint">No Wasm modules in this packet.</p>
+        <p class="hint">No functions in this packet.</p>
       </div>
     </section>
   </div>
@@ -182,8 +183,8 @@
       <div class="constructor-actions">
         <button id="addCurrentTabBtn" class="btn btn-secondary">＋ Add Current Tab</button>
         <button id="addMediaBtn" class="btn btn-secondary">＋ Add Media</button>
-        <button id="addWasmBtn" class="btn btn-secondary">＋ Add WASM</button>
-        <button id="aiGenerateWasmBtn" class="btn btn-secondary hidden">✨ Generate WASM</button>
+        <button id="addWasmBtn" class="btn btn-secondary">＋ Add Function</button>
+        <button id="aiGenerateWasmBtn" class="btn btn-secondary hidden">✨ Generate Function</button>
         <input type="file" id="wasmFileInput" accept=".wasm" style="display: none;">
         <input type="file" id="mediaFileInput" accept="image/*,video/*,audio/*" multiple style="display: none;">
       </div>
@@ -256,10 +257,10 @@
   <div id="aiPromptModal" class="modal-overlay hidden">
     <div class="modal">
       <div class="modal-header">
-        <h3>✨ Generate WASM with Gemini</h3>
+        <h3>✨ Generate Functions with Gemini</h3>
         <button id="aiModalCloseBtn" class="btn-icon">✕</button>
       </div>
-      <p class="modal-hint">Describe the functionality you want for your Wasm function.</p>
+      <p class="modal-hint">Describe the behavior you want for your function.</p>
       <textarea id="aiPromptTextarea" class="schema-textarea"
         placeholder="e.g. A function that calculates the total size of all bookmarks..." spellcheck="false"
         style="height: 120px; margin-bottom: 12px;"></textarea>
@@ -276,11 +277,11 @@
     </div>
   </div>
 
-  <!-- ===== WASM RESULT MODAL ===== -->
+  <!-- ===== EXECUTION RESULT MODAL ===== -->
   <div id="wasmResultModal" class="modal-overlay hidden">
-    <div class="modal">
+    <div class="modal result-modal">
       <div class="modal-header">
-        <h3>🧩 WASM Execution Result</h3>
+        <h3>🧩 Execution Result</h3>
         <button id="wasmResultCloseBtn" class="btn-icon">✕</button>
       </div>
 
