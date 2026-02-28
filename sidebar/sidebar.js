@@ -408,7 +408,14 @@ class SidebarUI {
     setupMessageHandlers() {
         chrome.runtime.onMessage.addListener((message) => {
             if (message.type === 'packetFocused') {
+                if (!message.packet) {
+                    this.activeUrl = null;
+                    this.activePacketGroupId = null;
+                    this.updateClipperState();
+                    return;
+                }
                 this.activeUrl = message.packet.activeUrl || null;
+                this.activePacketGroupId = message.packet.groupId || null;
                 this.showPacketDetailView(message.packet);
                 this.updateClipperState();
             } else if (message.action === 'triggerNewPacketWithTab') {
@@ -945,6 +952,8 @@ class SidebarUI {
         if (linkCount === 0) linkList.innerHTML = '<p class="hint">No links in this packet.</p>';
         if (mediaCount === 0) mediaList.innerHTML = '<p class="hint">No media in this packet.</p>';
         if (wasmCount === 0) wasmList.innerHTML = '<p class="hint">No Wasm modules in this packet.</p>';
+
+        this.updateClipperState();
     }
 
     async removePacketItem(index) {
@@ -2399,12 +2408,17 @@ class SidebarUI {
             }
 
             const currentUrl = resp.tab.url;
+            const currentGroupId = resp.tab.groupId;
+
+            // Boundary enforcement: must be the correct URL AND the correct tab group
             const isInPacket = this.currentPacket.urls.some(item => {
                 const itemUrl = typeof item === 'string' ? item : item.url;
                 return itemUrl && this.urlsMatch(itemUrl, currentUrl);
             });
 
-            this.setClipperActive(isInPacket);
+            const isCorrectGroup = currentGroupId !== undefined && currentGroupId === this.activePacketGroupId;
+
+            this.setClipperActive(isInPacket && isCorrectGroup);
         } catch (err) {
             this.setClipperActive(false);
         }
@@ -2475,7 +2489,7 @@ class SidebarUI {
                 this.showPacketDetailView(this.currentPacket);
 
                 // Deactivate clipper UI after successful capture
-                this.updateClipperState(false);
+                this.handleClipperCancelled();
 
                 // Highlight the new item
                 setTimeout(() => {

@@ -447,7 +447,7 @@ async function handleMessage(request, sender, sendResponse) {
                 if (!tab) {
                     sendResponse({ success: false, error: 'No active tab found' });
                 } else {
-                    sendResponse({ success: true, tab: { id: tab.id, title: tab.title, url: tab.url } });
+                    sendResponse({ success: true, tab: { id: tab.id, title: tab.title, url: tab.url, groupId: tab.groupId } });
                 }
                 break;
             }
@@ -588,7 +588,7 @@ async function handleMessage(request, sender, sendResponse) {
                     const result = db.exec(`SELECT rowid, name, urls FROM packets WHERE rowid = ${packetId}`);
                     if (!result.length || !result[0].values.length) { sendResponse({ success: true, packet: null }); break; }
                     const [id, name, urlsJson] = result[0].values[0];
-                    sendResponse({ success: true, packet: { id, name, urls: JSON.parse(urlsJson) } });
+                    sendResponse({ success: true, packet: { id, name, urls: JSON.parse(urlsJson), groupId: tab.groupId } });
                 } catch (err) {
                     sendResponse({ success: false, error: err.message });
                 }
@@ -983,7 +983,12 @@ chrome.tabs.onActivated.addListener(async ({ tabId }) => {
         const tab = await chrome.tabs.get(tabId);
         const { activeGroups = {} } = await chrome.storage.local.get('activeGroups');
         const groupId = tab.groupId;
-        if (groupId === chrome.tabGroups.TAB_GROUP_ID_NONE || !activeGroups[groupId]) return;
+
+        if (groupId === chrome.tabGroups.TAB_GROUP_ID_NONE || !activeGroups[groupId]) {
+            chrome.runtime.sendMessage({ type: 'packetFocused', packet: null }).catch(() => { });
+            return;
+        }
+
         const packetId = activeGroups[groupId];
         await initializeSQLite();
         const db = sqliteManager.getDatabase('packets');
@@ -1005,7 +1010,12 @@ chrome.tabs.onUpdated.addListener(async (tabId, changeInfo, tab) => {
         try {
             const { activeGroups = {} } = await chrome.storage.local.get('activeGroups');
             const groupId = tab.groupId;
-            if (groupId === chrome.tabGroups.TAB_GROUP_ID_NONE || !activeGroups[groupId]) return;
+
+            if (groupId === chrome.tabGroups.TAB_GROUP_ID_NONE || !activeGroups[groupId]) {
+                chrome.runtime.sendMessage({ type: 'packetFocused', packet: null }).catch(() => { });
+                return;
+            }
+
             const packetId = activeGroups[groupId];
             await initializeSQLite();
             const db = sqliteManager.getDatabase('packets');
