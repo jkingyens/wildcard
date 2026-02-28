@@ -589,6 +589,30 @@ class SidebarUI {
         this.entryPreviewModal.addEventListener('click', (e) => {
             if (e.target === this.entryPreviewModal) this.entryPreviewModal.classList.add('hidden');
         });
+
+        // Global keydown for Escape in sidebar
+        window.addEventListener('keydown', (e) => {
+            if (e.key === 'Escape') {
+                // Check if any modal is open first
+                const anyModalOpen = [
+                    this.schemaModal,
+                    this.aiPromptModal,
+                    this.wasmResultModal,
+                    this.entryPreviewModal,
+                    this.schemaPickerOverlay,
+                    this.schemaSqlViewerOverlay
+                ].some(m => m && !m.classList.contains('hidden'));
+
+                if (anyModalOpen) return; // Let individual modal handlers (if any) or existing logic handle it
+
+                // If no modal is open and clipper is suppressed, don't do anything extra
+                // But if we're in packet detail view and clipper is NOT suppressed, cancel it
+                const isDetailView = this.packetDetailView.classList.contains('active');
+                if (isDetailView && !this.isClipperManuallyCancelled) {
+                    this.handleClipperCancelled();
+                }
+            }
+        });
     }
 
     // ===== NAVIGATION =====
