@@ -315,8 +315,8 @@ class SidebarUI {
         this.schemaTextarea = document.getElementById('schemaTextarea');
         // Packet detail view elements
         this.packetDetailTitle = document.getElementById('packetDetailTitle');
-        this.packetLinkList = document.getElementById('packetLinkList');
-        this.packetDetailCount = document.getElementById('packetDetailCount');
+        this.packetPageList = document.getElementById('packetPageList');
+        this.packetDetailPageCount = document.getElementById('packetDetailPageCount');
 
         // Wits view elements
         this.witsView = document.getElementById('witsView');
@@ -359,7 +359,7 @@ class SidebarUI {
         // State
         this.currentCollection = null;
         this.currentSchema = [];
-        this.constructorItems = []; // Array of { type: 'link'|'wasm', ... }
+        this.constructorItems = []; // Array of { type: 'page'|'wasm', ... }
         this.activePacketGroupId = null;
         this.dragSrcIndex = null;
         this.geminiApiKey = '';
@@ -453,12 +453,12 @@ class SidebarUI {
         });
     }
 
-    handleTriggerNewPacketWithTab(silent = false) {
+    handleTriggerNewPacketWithPage(silent = false) {
         if (this.packetDetailView.classList.contains('active') && this.currentPacket) {
-            this.addTabToCurrentPacket();
+            this.addPageToCurrentPacket();
         } else {
             this.showConstructorView();
-            this.addCurrentTab(silent);
+            this.addCurrentPage(silent);
         }
     }
 
@@ -508,7 +508,7 @@ class SidebarUI {
                     } else {
                         // Step 1: Navigate to constructor and add tab, but stay OFF
                         this.isClipperInvoked = false;
-                        this.handleTriggerNewPacketWithTab(true);
+                        this.handleTriggerNewPacketWithPage(true);
                     }
                 }
                 await this.updateClipperState();
@@ -530,11 +530,11 @@ class SidebarUI {
                 const itemUrl = typeof item === 'string' ? item : item.url;
                 return this.urlsMatch(itemUrl, url);
             })) {
-                this.showNotification('Tab already in packet', 'error');
+                this.showNotification('Page already in packet', 'error');
                 return;
             }
 
-            this.currentPacket.urls.push({ type: 'link', title: title || url, url });
+            this.currentPacket.urls.push({ type: 'page', title: title || url, url });
 
             const saveResp = await this.sendMessage({
                 action: 'savePacket',
@@ -599,7 +599,7 @@ class SidebarUI {
 
         // Constructor view (packets)
         document.getElementById('constructorBackBtn').addEventListener('click', () => this.showDetailView('packets'));
-        document.getElementById('addCurrentTabBtn').addEventListener('click', () => this.addCurrentTab());
+        document.getElementById('addCurrentPageBtn').addEventListener('click', () => this.addCurrentPage());
         document.getElementById('addMediaBtn').addEventListener('click', () => document.getElementById('mediaFileInput').click());
         document.getElementById('mediaFileInput').addEventListener('change', (e) => this.handleMediaFileSelect(e));
         document.getElementById('addWasmBtn').addEventListener('click', () => document.getElementById('wasmFileInput').click());
@@ -912,38 +912,38 @@ class SidebarUI {
         document.getElementById('packetDetailTitle').textContent = packet.name;
 
         // Target new sections
-        const linkList = document.getElementById('packetLinkList');
+        const pageList = document.getElementById('packetPageList');
         const mediaList = document.getElementById('packetMediaList');
         const wasmList = document.getElementById('packetWasmList');
 
-        linkList.innerHTML = '';
+        pageList.innerHTML = '';
         mediaList.innerHTML = '';
         wasmList.innerHTML = '';
 
-        let linkCount = 0;
+        let pageCount = 0;
         let mediaCount = 0;
         let wasmCount = 0;
 
         packet.urls.forEach((item, index) => {
-            const type = (typeof item === 'object') ? (item.type || 'link') : 'link';
-            if (type === 'link') {
-                linkCount++;
+            const type = (typeof item === 'object') ? (item.type || 'page') : 'page';
+            if (type === 'page' || type === 'link') {
+                pageCount++;
                 const url = typeof item === 'string' ? item : item.url;
                 const card = document.createElement('div');
                 const isActive = this.urlsMatch(url, this.activeUrl);
-                card.className = `packet-link-card ${isActive ? 'active' : ''}`;
+                card.className = `packet-page-card ${isActive ? 'active' : ''}`;
 
                 let hostname;
                 try { hostname = new URL(url).hostname; } catch (e) { hostname = 'Unknown'; }
 
                 const faviconUrl = `https://www.google.com/s2/favicons?domain=${hostname}&sz=32`;
                 card.innerHTML = `
-                    <img src="${faviconUrl}" class="packet-link-favicon" onerror="this.src='data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjQgMjQ+PHBhdGggZmlsbD0iI2NjYyIgZD0iTTEyIDJDNi40OCAyIDIgNi40OCAyIDEyczQuNDggMTAgMTAgMTAgMTAtNC40OCAxMC0xMFMxNy41MiAyIDEyIDJ6bS0xIDE3LjkyVjE5aC0ydjMtLjA4QzUuNjEgMTguNTMgMi41IDE1LjEyIDIuNSAxMWMwLS45OC4xOC0xLjkyLjUtMi44bDMuNTUgMy41NVYxOS45MnpNMjEgMTEuMzhWMTJjMCA0LjQxLTMuNiA4LTggOGgtMXYtMmgtMmwtMy0zVjlsMy0zIDIuMSAyLjFjLjIxLS42My42OC0xLjExIDEuNC0xLjExLjgzIDAgMS41LjY3IDEuNSAxLjV2My41aDN2LTNoMS42MWwuMzktLjM5YzIuMDEgMS4xMSAzLjUgMy4zNSAzLjUgNS44OHoiLz48L3N2Zz4='">
-                    <div class="packet-link-info">
-                        <div class="packet-link-hostname">${this.escapeHtml(hostname)}</div>
-                        <div class="packet-link-url">${this.escapeHtml(url)}</div>
+                    <img src="${faviconUrl}" class="packet-page-favicon" onerror="this.src='data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjQgMjQ+PHBhdGggZmlsbD0iI2NjYyIgZD0iTTEyIDJDNi40OCAyIDIgNi40OCAyIDEyczQuNDggMTAgMTAgMTAgMTAtNC40OCAxMC0xMFMxNy41MiAyIDEyIDJ6bS0xIDE3LjkyVjE5aC0ydjMtLjA4QzUuNjEgMTguNTMgMi41IDE1LjEyIDIuNSAxMWMwLS45OC4Small-1LjkyLjUtMi44bDMuNTUgMy41NVYxOS45MnpNMjEgMTEuMzhWMTJjMCA0LjQxLTMuNiA4LTggOGgtMXYtMmgtMmwtMy0zVjlsMy0zIDIuMSAyLjFjLjIxLS42My42OC0xLjExIDEuNC0xLjExLjgzIDAgMS41LjY3IDEuNSAxLjV2My41aDN2LTNoMS42MWwuMzktLjM5YzIuMDEgMS4xMSAzLjUgMy4zNSAzLjUgNS44OHoiLz48L3N2Zz4='">
+                    <div class="packet-page-info">
+                        <div class="packet-page-hostname">${this.escapeHtml(hostname)}</div>
+                        <div class="packet-page-url">${this.escapeHtml(url)}</div>
                     </div>
-                    <button class="constructor-remove-btn" title="Remove link">🗑️</button>
+                    <button class="constructor-remove-btn" title="Remove page">🗑️</button>
                 `;
                 card.querySelector('.constructor-remove-btn').addEventListener('click', (e) => {
                     e.stopPropagation();
@@ -955,7 +955,7 @@ class SidebarUI {
                         this.activePacketGroupId = resp.newGroupId;
                     }
                 });
-                linkList.appendChild(card);
+                pageList.appendChild(card);
             } else if (type === 'media') {
                 mediaCount++;
                 const mediaUrl = chrome.runtime.getURL(`sidebar/media.html?id=${item.mediaId}&type=${encodeURIComponent(item.mimeType)}&name=${encodeURIComponent(item.name)}`);
@@ -985,10 +985,10 @@ class SidebarUI {
             } else if (type === 'wasm') {
                 wasmCount++;
                 const card = document.createElement('div');
-                card.className = 'packet-link-card wasm';
+                card.className = 'packet-page-card wasm';
                 card.innerHTML = `
-                    <div class="packet-link-info">
-                        <div class="packet-link-title">${this.escapeHtml(item.prompt || item.name)}</div>
+                    <div class="packet-page-info">
+                        <div class="packet-page-title">${this.escapeHtml(item.prompt || item.name)}</div>
                     </div>
                     <div style="display: flex; gap: 4px; align-items: center;">
                         <button class="constructor-remove-btn" title="Remove function">🗑️</button>
@@ -1007,11 +1007,11 @@ class SidebarUI {
             }
         });
 
-        document.getElementById('packetDetailCount').textContent = linkCount;
+        document.getElementById('packetDetailPageCount').textContent = pageCount;
         document.getElementById('packetMediaCount').textContent = mediaCount;
         document.getElementById('packetWasmCount').textContent = wasmCount;
 
-        if (linkCount === 0) linkList.innerHTML = '<p class="hint">No links in this packet.</p>';
+        if (pageCount === 0) pageList.innerHTML = '<p class="hint">No pages in this packet.</p>';
         if (mediaCount === 0) mediaList.innerHTML = '<p class="hint">No media in this packet.</p>';
         if (wasmCount === 0) wasmList.innerHTML = '<p class="hint">No Wasm modules in this packet.</p>';
 
@@ -1655,21 +1655,21 @@ class SidebarUI {
     // ===== PACKET CONSTRUCTOR =====
 
 
-    async addCurrentTab(silent = false) {
+    async addCurrentPage(silent = false) {
         try {
             const resp = await this.sendMessage({ action: 'getCurrentTab' });
             if (!resp.success) throw new Error(resp.error || 'Could not get current tab');
             const { title, url } = resp.tab;
             // Avoid duplicates (checking URLs only)
-            if (this.constructorItems.some(item => item.type === 'link' && item.url === url)) {
-                if (!silent) this.showNotification('Tab already added', 'error');
+            if (this.constructorItems.some(item => item.type === 'page' && item.url === url)) {
+                if (!silent) this.showNotification('Page already added', 'error');
                 return;
             }
-            this.constructorItems.push({ type: 'link', title: title || url, url });
+            this.constructorItems.push({ type: 'page', title: title || url, url });
             this.renderConstructorItems();
         } catch (err) {
-            console.error('addCurrentTab failed:', err);
-            if (!silent) this.showNotification('Could not get current tab', 'error');
+            console.error('addCurrentPage failed:', err);
+            if (!silent) this.showNotification('Could not get current page', 'error');
         }
     }
 
@@ -1734,7 +1734,7 @@ class SidebarUI {
 
     renderConstructorItems() {
         if (this.constructorItems.length === 0) {
-            this.constructorList.innerHTML = '<p class="hint constructor-empty">No tabs added yet. Click "Add Current Tab" to start.</p>';
+            this.constructorList.innerHTML = '<p class="hint constructor-empty">No pages added yet. Click "Add Current Page" to start.</p>';
             return;
         }
 
@@ -1772,7 +1772,7 @@ class SidebarUI {
                     </div>
                     <button class="constructor-remove-btn" title="Remove" data-index="${index}">🗑</button>`;
             } else {
-                // Link
+                // Page
                 card.innerHTML = `
                     <span class="drag-handle" title="Drag to reorder">⠿</span>
                     <div class="constructor-card-info">

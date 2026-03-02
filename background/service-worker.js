@@ -406,12 +406,12 @@ async function handleMessage(request, sender, sendResponse) {
                         break;
                     }
 
-                    const links = items.filter(item => {
+                    const pages = items.filter(item => {
                         if (typeof item === 'string') return true;
-                        return item.type === 'link';
+                        return item.type === 'page' || item.type === 'link';
                     }).map(item => typeof item === 'string' ? item : item.url);
 
-                    if (links.length === 0) {
+                    if (pages.length === 0) {
                         sendResponse({ success: true, message: 'No web pages found in packet.' });
                         break;
                     }
