@@ -1101,9 +1101,39 @@ class SidebarUI {
         return [...pages, ...media, ...wasm];
     }
 
-    navigatePacketItems(direction) {
+    async navigatePacketItems(direction) {
         const visualSeq = this.getVisualSequence();
         if (visualSeq.length === 0) return;
+
+        // Query open tabs in the current group to restrict cycling
+        let openUrls = new Set();
+        if (this.activePacketGroupId !== null) {
+            try {
+                const tabs = await chrome.tabs.query({ groupId: this.activePacketGroupId });
+                tabs.forEach(t => {
+                    if (t.url) openUrls.add(t.url);
+                });
+            } catch (e) {
+                console.error('[Sidebar] Failed to query tabs for cycling:', e);
+            }
+        }
+
+        // Filter visual sequence to only items that have an open tab
+        const filteredSeq = visualSeq.filter(entry => {
+            const type = (typeof entry.item === 'object') ? (entry.item.type || 'page') : 'page';
+            if (type === 'wasm') return true; // Keep WASM functions as they don't use tabs
+
+            let itemUrl;
+            if (type === 'page' || type === 'link') {
+                itemUrl = typeof entry.item === 'string' ? entry.item : entry.item.url;
+            } else if (type === 'media') {
+                itemUrl = chrome.runtime.getURL(`sidebar/media.html?id=${entry.item.mediaId}&type=${encodeURIComponent(entry.item.mimeType)}&name=${encodeURIComponent(entry.item.name)}`);
+            }
+
+            return openUrls.has(itemUrl);
+        });
+
+        if (filteredSeq.length === 0) return;
 
         let currentOriginalIndex = this.getActiveItemIndex();
 
@@ -1112,16 +1142,16 @@ class SidebarUI {
             currentOriginalIndex = this.lastNavigatedIndex;
         }
 
-        const currentVisualIndex = visualSeq.findIndex(entry => entry.originalIndex === currentOriginalIndex);
+        const currentVisualIndex = filteredSeq.findIndex(entry => entry.originalIndex === currentOriginalIndex);
 
         let nextVisualIndex;
         if (currentVisualIndex === -1) {
-            nextVisualIndex = direction > 0 ? 0 : visualSeq.length - 1;
+            nextVisualIndex = direction > 0 ? 0 : filteredSeq.length - 1;
         } else {
-            nextVisualIndex = (currentVisualIndex + direction + visualSeq.length) % visualSeq.length;
+            nextVisualIndex = (currentVisualIndex + direction + filteredSeq.length) % filteredSeq.length;
         }
 
-        const nextEntry = visualSeq[nextVisualIndex];
+        const nextEntry = filteredSeq[nextVisualIndex];
         this.lastNavigatedIndex = nextEntry.originalIndex;
 
         // Trigger individual UI refresh if we're on a WASM item so it gets the highlight

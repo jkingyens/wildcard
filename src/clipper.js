@@ -68,7 +68,15 @@
 
         shadow.appendChild(overlay);
         overlay.appendChild(selection);
-        document.body.appendChild(host);
+
+        if (document.body) {
+            document.body.appendChild(host);
+        } else {
+            // Wait for body if we injected at document_start and it's not ready
+            document.addEventListener('DOMContentLoaded', () => {
+                document.body.appendChild(host);
+            });
+        }
     }
 
     function onMouseDown(e) {
