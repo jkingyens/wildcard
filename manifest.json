@@ -2,7 +2,7 @@
     "manifest_version": 3,
     "name": "Wildcard",
     "version": "1.0.0",
-    "description": "Turns your web browser into a web builder",
+    "description": "build from your browser",
     "permissions": [
         "storage",
         "sidePanel",

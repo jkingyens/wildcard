@@ -453,12 +453,12 @@ class SidebarUI {
         });
     }
 
-    handleTriggerNewPacketWithPage(silent = false) {
+    handleTriggerNewPacketWithTab(silent = false) {
         if (this.packetDetailView.classList.contains('active') && this.currentPacket) {
-            this.addPageToCurrentPacket();
+            this.addTabToCurrentPacket();
         } else {
             this.showConstructorView();
-            this.addCurrentPage(silent);
+            this.addCurrentTab(silent);
         }
     }
 
@@ -508,7 +508,7 @@ class SidebarUI {
                     } else {
                         // Step 1: Navigate to constructor and add tab, but stay OFF
                         this.isClipperInvoked = false;
-                        this.handleTriggerNewPacketWithPage(true);
+                        this.handleTriggerNewPacketWithTab(true);
                     }
                 }
                 await this.updateClipperState();
@@ -530,7 +530,7 @@ class SidebarUI {
                 const itemUrl = typeof item === 'string' ? item : item.url;
                 return this.urlsMatch(itemUrl, url);
             })) {
-                this.showNotification('Page already in packet', 'error');
+                this.showNotification('Tab already in packet', 'error');
                 return;
             }
 
@@ -599,7 +599,7 @@ class SidebarUI {
 
         // Constructor view (packets)
         document.getElementById('constructorBackBtn').addEventListener('click', () => this.showDetailView('packets'));
-        document.getElementById('addCurrentPageBtn').addEventListener('click', () => this.addCurrentPage());
+        document.getElementById('addCurrentTabBtn').addEventListener('click', () => this.addCurrentTab());
         document.getElementById('addMediaBtn').addEventListener('click', () => document.getElementById('mediaFileInput').click());
         document.getElementById('mediaFileInput').addEventListener('change', (e) => this.handleMediaFileSelect(e));
         document.getElementById('addWasmBtn').addEventListener('click', () => document.getElementById('wasmFileInput').click());
@@ -1655,21 +1655,21 @@ class SidebarUI {
     // ===== PACKET CONSTRUCTOR =====
 
 
-    async addCurrentPage(silent = false) {
+    async addCurrentTab(silent = false) {
         try {
             const resp = await this.sendMessage({ action: 'getCurrentTab' });
             if (!resp.success) throw new Error(resp.error || 'Could not get current tab');
             const { title, url } = resp.tab;
             // Avoid duplicates (checking URLs only)
             if (this.constructorItems.some(item => item.type === 'page' && item.url === url)) {
-                if (!silent) this.showNotification('Page already added', 'error');
+                if (!silent) this.showNotification('Tab already added', 'error');
                 return;
             }
             this.constructorItems.push({ type: 'page', title: title || url, url });
             this.renderConstructorItems();
         } catch (err) {
-            console.error('addCurrentPage failed:', err);
-            if (!silent) this.showNotification('Could not get current page', 'error');
+            console.error('addCurrentTab failed:', err);
+            if (!silent) this.showNotification('Could not get current tab', 'error');
         }
     }
 
@@ -1734,7 +1734,7 @@ class SidebarUI {
 
     renderConstructorItems() {
         if (this.constructorItems.length === 0) {
-            this.constructorList.innerHTML = '<p class="hint constructor-empty">No pages added yet. Click "Add Current Page" to start.</p>';
+            this.constructorList.innerHTML = '<p class="hint constructor-empty">No tabs added yet. Click "Add Current Tab" to start.</p>';
             return;
         }
 
