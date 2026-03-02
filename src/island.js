@@ -17,20 +17,23 @@ stopBtn.onclick = toggleRecording;
 
 async function toggleRecording() {
     if (!isRecording) {
+        // Immediate visual feedback
+        timerEl.textContent = 'Starting...';
+        recordBtn.style.display = 'none';
+
         try {
+            console.log('[Island] Requesting streamId (active tab)...');
             // Obtain streamId directly in the extension page context responding to user gesture
+            // This MUST be the first async call to preserve the gesture.
+            const streamId = await chrome.tabCapture.getMediaStreamId({});
+            console.log('[Island] Obtained streamId:', streamId);
+
             const [tab] = await chrome.tabs.query({ active: true, lastFocusedWindow: true });
             if (!tab) throw new Error('Could not identify active tab');
 
             if (tab.url.startsWith('chrome://') || tab.url.startsWith('edge://')) {
                 throw new Error('Chrome internal pages cannot be recorded');
             }
-
-            console.log('[Island] Requesting streamId (active tab)...');
-            // Some versions of Chrome prefer an empty object or a specific targetTabId.
-            // Let's try to get it without targetTabId first as it can be more robust for "invocation" checks.
-            const streamId = await chrome.tabCapture.getMediaStreamId({});
-            console.log('[Island] Obtained streamId:', streamId);
 
             console.log('[Island] Sending START_AUDIO_RECORDING to background');
             safeSendMessage({ action: 'START_AUDIO_RECORDING', streamId }, (resp) => {
@@ -52,6 +55,7 @@ async function toggleRecording() {
                 timerEl.textContent = 'Error: Check Permission';
             }
             timerEl.style.color = '#ff453a';
+            recordBtn.style.display = 'block'; // Restore button on error
             window.parent.postMessage({ type: 'ISLAND_EXPAND', expand: true }, '*');
             setTimeout(() => {
                 if (!isRecording) {
@@ -166,13 +170,6 @@ function updateUI() {
         clearInterval(timerInterval);
     }
 }
-
-// Global cleanup if clipper is deactivated elsewhere
-window.addEventListener('message', (event) => {
-    if (event.data.type === 'STOP_RECORDING_FORCE') {
-        if (isRecording) toggleRecording();
-    }
-});
 
 // Initialize UI state
 updateUI();

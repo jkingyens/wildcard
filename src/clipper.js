@@ -1,5 +1,5 @@
 (function () {
-    if (window.wildcardClipperInjected) return;
+    // Flag injection but always proceed to attach listeners (new context after reload)
     window.wildcardClipperInjected = true;
 
     let isActive = false;
@@ -12,7 +12,18 @@
     let selection = null;
 
     function createOverlay() {
-        if (host) return;
+        // If a host already exists (e.g., from an orphaned script), remove it
+        // to ensure the new script has a clean and responsive UI.
+        const existingHost = document.getElementById('wildcard-clipper-host');
+        if (existingHost) {
+            existingHost.remove();
+            // Reset all references to ensure full re-initialization
+            host = null;
+            shadow = null;
+            overlay = null;
+            selection = null;
+            island = null;
+        }
 
         // Create the host element that will hold the shadow root
         host = document.createElement('div');
@@ -38,7 +49,7 @@
             left: '0',
             width: '100vw',
             height: '100vh',
-            backgroundColor: 'rgba(0, 0, 0, 0.3)',
+            backgroundColor: 'rgba(0, 0, 0, 0.4)',
             cursor: 'crosshair',
             pointerEvents: 'none',
             display: 'none'
@@ -47,8 +58,9 @@
         selection = document.createElement('div');
         Object.assign(selection.style, {
             position: 'absolute',
-            border: '2px dashed #007bff',
-            backgroundColor: 'rgba(0, 123, 255, 0.1)',
+            border: '2px solid #ffffff',
+            boxShadow: '0 0 0 1px #007bff',
+            backgroundColor: 'rgba(0, 123, 255, 0.2)',
             boxSizing: 'border-box',
             display: 'none',
             pointerEvents: 'none'
@@ -158,14 +170,13 @@
             transform: 'translateX(-50%)',
             width: '150px',
             height: '40px',
-            border: 'none',
+            border: '1px solid rgba(255, 255, 255, 0.1)',
             borderRadius: '20px',
             zIndex: '2147483647',
-            boxShadow: '0 4px 12px rgba(0,0,0,0.3)',
+            boxShadow: '0 4px 20px rgba(0,0,0,0.6), 0 0 0 1px rgba(255,255,255,0.05), 0 0 15px rgba(255,255,255,0.05)',
             transition: 'all 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
             overflow: 'hidden',
-            backgroundColor: 'rgba(0, 0, 0, 0.85)',
-            backdropFilter: 'blur(20px)',
+            backgroundColor: '#000000',
             pointerEvents: 'auto'
         });
 
@@ -175,6 +186,8 @@
         window.addEventListener('message', (event) => {
             if (event.data.type === 'ISLAND_EXPAND') {
                 island.style.width = event.data.expand ? '200px' : '150px';
+            } else if (event.data.type === 'ESCAPE_PRESSED') {
+                safeSendMessage({ type: 'CLIPPER_CANCELLED' });
             }
         });
     }

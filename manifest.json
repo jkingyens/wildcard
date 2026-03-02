@@ -12,7 +12,8 @@
         "activeTab",
         "tabCapture",
         "offscreen",
-        "contextMenus"
+        "contextMenus",
+        "scripting"
     ],
     "host_permissions": [
         "<all_urls>"

@@ -18,6 +18,9 @@ let tabToUrlMapCached = {};
 // Bookmarks cache for synchronous access from WASM
 let bookmarkCache = null;
 
+// Track sidebar port to know if it's open
+let sidebarPort = null;
+
 async function syncBookmarkCache() {
     try {
         bookmarkCache = await chrome.bookmarks.getTree();
@@ -36,29 +39,27 @@ chrome.bookmarks.onChildrenReordered.addListener(syncBookmarkCache);
 chrome.bookmarks.onImportEnded.addListener(syncBookmarkCache);
 
 // Ensure the side panel doesn't intercept the click event so onClicked can fire
-chrome.runtime.onInstalled.addListener(() => {
+chrome.runtime.onInstalled.addListener(async () => {
     chrome.sidePanel.setPanelBehavior({ openPanelOnActionClick: false }).catch(console.error);
 
-    // Create context menu for a guaranteed way to "invoke" the extension on a page
-    chrome.contextMenus.create({
-        id: 'wildcard-record-audio',
-        title: 'Wildcard: Start Audio Recording',
-        contexts: ['all']
-    });
-});
-
-chrome.contextMenus.onClicked.addListener(async (info, tab) => {
-    if (info.menuItemId === 'wildcard-record-audio') {
-        try {
-            console.log('[SW] Context menu invocation, requesting streamId');
-            const streamId = await chrome.tabCapture.getMediaStreamId({ targetTabId: tab.id });
-            await initiateAudioRecording(streamId, tab.id);
-        } catch (e) {
-            console.error('[SW] Context menu invocation failed:', e);
-            chrome.tabs.sendMessage(tab.id, { type: 'RECORDING_ERROR', error: 'Please click the extension icon first.' });
+    // Programmatic injection for all existing tabs on install/reload
+    // This allows the clipper to work without needing a refresh
+    try {
+        const tabs = await chrome.tabs.query({ url: ['http://*/*', 'https://*/*'] });
+        for (const tab of tabs) {
+            chrome.scripting.executeScript({
+                target: { tabId: tab.id },
+                files: ['src/clipper.js']
+            }).catch(() => {
+                // Silently skip restricted tabs (like Chrome Settings or Web Store)
+            });
         }
+    } catch (e) {
+        console.error('[SW] Programmatic injection failed:', e);
     }
 });
+
+// Context menu removed as per user request. Toolbar is now the primary invocation method.
 
 chrome.commands.onCommand.addListener(async (command) => {
     if (command === 'toggle-recording') {
@@ -289,12 +290,15 @@ async function initializeSQLite() {
 
 // Open side panel when extension icon is clicked
 chrome.action.onClicked.addListener((tab) => {
-    // Attempt to open the side panel synchronously to preserve user gesture context
-    chrome.sidePanel.open({ windowId: tab.windowId }).catch(console.error);
-
-    // Send a message in case the sidebar is already open. 
-    // If it's closed, this will fail silently which is exactly what we want.
-    chrome.runtime.sendMessage({ action: 'triggerNewPacketWithTab' }).catch(e => { });
+    // 1. Synchronous check: Do we have an active port?
+    // Using 'async/await' here breaks the "user gesture" required for sidePanel.open()
+    if (sidebarPort) {
+        // Sidebar is OPEN! Delegate toggle logic to it
+        chrome.runtime.sendMessage({ type: 'CLIPPER_ICON_CLICKED', tab }).catch(() => { });
+    } else {
+        // Sidebar is CLOSED! Open it
+        chrome.sidePanel.open({ windowId: tab.windowId }).catch(console.error);
+    }
 });
 
 // Message handler for sidebar communication
@@ -588,7 +592,35 @@ async function handleMessage(request, sender, sendResponse) {
                     const result = db.exec(`SELECT rowid, name, urls FROM packets WHERE rowid = ${packetId}`);
                     if (!result.length || !result[0].values.length) { sendResponse({ success: true, packet: null }); break; }
                     const [id, name, urlsJson] = result[0].values[0];
-                    sendResponse({ success: true, packet: { id, name, urls: JSON.parse(urlsJson), groupId: tab.groupId } });
+                    sendResponse({
+                        success: true,
+                        packet: {
+                            id,
+                            name,
+                            urls: JSON.parse(urlsJson),
+                            groupId: tab.groupId,
+                            activeUrl: tab.url
+                        }
+                    });
+                } catch (err) {
+                    sendResponse({ success: false, error: err.message });
+                }
+                break;
+            }
+            case 'getPacket': {
+                try {
+                    const db = sqliteManager.getDatabase('packets');
+                    if (!db) throw new Error('Packets database not found');
+                    const result = db.exec(`SELECT rowid, name, urls FROM packets WHERE rowid = ${request.id}`);
+                    if (!result.length || !result[0].values.length) {
+                        sendResponse({ success: false, error: 'Packet not found' });
+                        break;
+                    }
+                    const [id, name, urlsJson] = result[0].values[0];
+                    sendResponse({
+                        success: true,
+                        packet: { id, name, urls: JSON.parse(urlsJson) }
+                    });
                 } catch (err) {
                     sendResponse({ success: false, error: err.message });
                 }
@@ -1050,7 +1082,9 @@ chrome.tabGroups.onRemoved.addListener(async (group) => {
 // Handle sidebar connection for robust closure detection
 chrome.runtime.onConnect.addListener((port) => {
     if (port.name === 'sidebar') {
+        sidebarPort = port;
         port.onDisconnect.addListener(async () => {
+            sidebarPort = null;
             try {
                 // Sidebar closed! Deactivate clipper on the active tab
                 const [tab] = await chrome.tabs.query({ active: true, lastFocusedWindow: true });

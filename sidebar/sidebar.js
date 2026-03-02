@@ -368,6 +368,8 @@ class SidebarUI {
         this.theme = 'light';
         this.activeUrl = null;
         this.isClipperManuallyCancelled = false;
+        this.isClipperInvoked = false; // Manual activation state for activeTab
+        this.isClipperIconProcessing = false; // Guard for rapid clicks
 
         this.setupEventListeners();
         this.setupMessageHandlers();
@@ -380,8 +382,8 @@ class SidebarUI {
         this.init();
 
         // Establish a persistent connection to the background script
-        // This allows the service worker to detect when the sidebar is closed
-        this.port = chrome.runtime.connect({ name: 'sidebar' });
+        // This allows the service worker to detect when the sidebar is open
+        this.connectToBackground();
     }
 
     async init() {
@@ -405,19 +407,37 @@ class SidebarUI {
         }
     }
 
+    connectToBackground() {
+        try {
+            this.port = chrome.runtime.connect({ name: 'sidebar' });
+            this.port.onDisconnect.addListener(() => {
+                console.log('[Sidebar] Background connection lost. Reconnecting in 1s...');
+                this.port = null;
+                setTimeout(() => this.connectToBackground(), 1000);
+            });
+        } catch (e) {
+            console.error('[Sidebar] Failed to connect to background:', e);
+            setTimeout(() => this.connectToBackground(), 5000);
+        }
+    }
+
     setupMessageHandlers() {
         chrome.runtime.onMessage.addListener((message) => {
             if (message.type === 'packetFocused') {
                 if (!message.packet) {
                     this.activeUrl = null;
                     this.activePacketGroupId = null;
+                    this.isClipperInvoked = false;
                     this.updateClipperState();
                     return;
                 }
                 this.activeUrl = message.packet.activeUrl || null;
                 this.activePacketGroupId = message.packet.groupId || null;
+                this.isClipperInvoked = false; // Reset invocation whenever tab focus changes
                 this.showPacketDetailView(message.packet);
                 this.updateClipperState();
+            } else if (message.type === 'CLIPPER_ICON_CLICKED') {
+                this.handleToolbarIconClicked(message.tab);
             } else if (message.action === 'triggerNewPacketWithTab') {
                 this.handleTriggerNewPacketWithTab();
             } else if (message.type === 'CLIPPER_REGION_SELECTED') {
@@ -433,12 +453,68 @@ class SidebarUI {
         });
     }
 
-    handleTriggerNewPacketWithTab() {
+    handleTriggerNewPacketWithTab(silent = false) {
         if (this.packetDetailView.classList.contains('active') && this.currentPacket) {
             this.addTabToCurrentPacket();
         } else {
             this.showConstructorView();
-            this.addCurrentTab();
+            this.addCurrentTab(silent);
+        }
+    }
+
+    async handleToolbarIconClicked(tab) {
+        if (this.isClipperIconProcessing) return;
+        this.isClipperIconProcessing = true;
+
+        try {
+            if (this.isClipperInvoked) {
+                // Toggle OFF
+                this.isClipperInvoked = false;
+                await this.updateClipperState();
+            } else {
+                // Determine if the current tab is already in a packet group
+                const { activeGroups = {} } = await chrome.storage.local.get('activeGroups');
+                const groupId = tab.groupId;
+
+                if (groupId !== -1 && activeGroups[groupId]) {
+                    const packetId = activeGroups[groupId];
+                    const isCorrectPacketShowing = this.packetDetailView.classList.contains('active') &&
+                        this.currentPacket &&
+                        this.currentPacket.id === packetId;
+
+                    if (!isCorrectPacketShowing) {
+                        // Step 1: Just bring the packet into focus
+                        const resp = await this.sendMessage({ action: 'getPacket', id: packetId });
+                        if (resp && resp.success && resp.packet) {
+                            resp.packet.groupId = groupId;
+                            resp.packet.activeUrl = tab.url;
+                            this.showPacketDetailView(resp.packet);
+                        }
+                        this.isClipperInvoked = false; // Stay OFF
+                    } else {
+                        // Step 2: Already showing, so Toggle ON
+                        this.isClipperInvoked = true;
+                        this.isClipperManuallyCancelled = false;
+                    }
+                } else {
+                    // Tab is NOT in a packet! 
+                    const isConstructorActive = this.constructorView.classList.contains('active');
+                    const isTabInConstructor = this.constructorItems.some(item => item.type === 'link' && item.url === tab.url);
+
+                    if (isConstructorActive && isTabInConstructor) {
+                        // Step 2: Already in constructor with this tab, so Toggle ON
+                        this.isClipperInvoked = true;
+                        this.isClipperManuallyCancelled = false;
+                    } else {
+                        // Step 1: Navigate to constructor and add tab, but stay OFF
+                        this.isClipperInvoked = false;
+                        this.handleTriggerNewPacketWithTab(true);
+                    }
+                }
+                await this.updateClipperState();
+            }
+        } finally {
+            this.isClipperIconProcessing = false;
         }
     }
 
@@ -483,17 +559,10 @@ class SidebarUI {
         try {
             const resp = await this.sendMessage({ action: 'getActivePacket' });
             if (resp.success && resp.packet) {
-                // Ensure the packet object includes the groupId from the response context (or we might need to get it specially)
-                // The service worker getActivePacket returns { id, name, urls } but not groupId. 
-                // Wait, I see I handled getActivePacket in SW to just return packet details. 
-                // I need the groupId to support opening tabs in it.
-                // Re-reading SW: getActivePacket returns { id, name, urls }. It usually finds it via tab.groupId. 
-                // I should probably fetch the current tab's groupId here or update SW.
-                // Actually the SW `getActivePacket` finds the group ID active tab is in. 
-                // Let's assume the user is in that group. I'll get the current tab here to be sure.
                 const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
                 if (tab && tab.groupId !== -1) {
                     resp.packet.groupId = tab.groupId;
+                    resp.packet.activeUrl = tab.url; // Ensure highlighting works on start
                     this.showPacketDetailView(resp.packet);
                 }
             }
@@ -822,7 +891,7 @@ class SidebarUI {
 
     async showPacketDetailView(packet) {
         this.currentPacket = packet;
-        this.isClipperManuallyCancelled = false; // Reset cancellation when switching packets
+        this.isClipperManuallyCancelled = false;
         this.activePacketGroupId = packet.groupId || null;
         if (packet.activeUrl) this.activeUrl = packet.activeUrl;
 
@@ -881,13 +950,6 @@ class SidebarUI {
                     this.removePacketItem(index);
                 });
                 card.addEventListener('click', async () => {
-                    const currentlyActive = this.urlsMatch(url, this.activeUrl);
-                    if (currentlyActive) {
-                        this.isClipperManuallyCancelled = !this.isClipperManuallyCancelled;
-                        this.updateClipperState();
-                        return;
-                    }
-
                     const resp = await this.sendMessage({ action: 'openTabInGroup', url, groupId: this.activePacketGroupId, packetId: packet.id });
                     if (resp && resp.success && resp.newGroupId) {
                         this.activePacketGroupId = resp.newGroupId;
@@ -1593,21 +1655,21 @@ class SidebarUI {
     // ===== PACKET CONSTRUCTOR =====
 
 
-    async addCurrentTab() {
+    async addCurrentTab(silent = false) {
         try {
             const resp = await this.sendMessage({ action: 'getCurrentTab' });
             if (!resp.success) throw new Error(resp.error || 'Could not get current tab');
             const { title, url } = resp.tab;
             // Avoid duplicates (checking URLs only)
             if (this.constructorItems.some(item => item.type === 'link' && item.url === url)) {
-                this.showNotification('Tab already added', 'error');
+                if (!silent) this.showNotification('Tab already added', 'error');
                 return;
             }
             this.constructorItems.push({ type: 'link', title: title || url, url });
             this.renderConstructorItems();
         } catch (err) {
             console.error('addCurrentTab failed:', err);
-            this.showNotification('Could not get current tab', 'error');
+            if (!silent) this.showNotification('Could not get current tab', 'error');
         }
     }
 
@@ -2395,7 +2457,16 @@ class SidebarUI {
 
     async updateClipperState() {
         const isDetailView = this.packetDetailView.classList.contains('active');
-        if (!isDetailView || !this.currentPacket || this.isClipperManuallyCancelled) {
+        const isConstructorView = this.constructorView.classList.contains('active');
+
+        // REDESIGN: Only active if manually invoked, not cancelled, and in detail or constructor view
+        if ((!isDetailView && !isConstructorView) || this.isClipperManuallyCancelled || !this.isClipperInvoked) {
+            this.setClipperActive(false);
+            return;
+        }
+
+        // If in detail view, we also need a currentPacket
+        if (isDetailView && !this.currentPacket) {
             this.setClipperActive(false);
             return;
         }
@@ -2410,15 +2481,20 @@ class SidebarUI {
             const currentUrl = resp.tab.url;
             const currentGroupId = resp.tab.groupId;
 
-            // Boundary enforcement: must be the correct URL AND the correct tab group
-            const isInPacket = this.currentPacket.urls.some(item => {
-                const itemUrl = typeof item === 'string' ? item : item.url;
-                return itemUrl && this.urlsMatch(itemUrl, currentUrl);
-            });
+            // Boundary enforcement: must be the correct tab group (if in a packet)
+            // For constructor view, we don't have a fixed group yet, so we're more lenient
+            let isInPacket = false;
+            if (isDetailView && this.currentPacket) {
+                isInPacket = this.currentPacket.urls.some(item => {
+                    const itemUrl = typeof item === 'string' ? item : item.url;
+                    return itemUrl && this.urlsMatch(itemUrl, currentUrl);
+                });
+            }
 
             const isCorrectGroup = currentGroupId !== undefined && currentGroupId === this.activePacketGroupId;
 
-            this.setClipperActive(isInPacket && isCorrectGroup);
+            // If manually invoked, we show it even if URL isn't in packet yet (so user can clip it)
+            this.setClipperActive(this.isClipperInvoked || (isInPacket && isCorrectGroup));
         } catch (err) {
             this.setClipperActive(false);
         }
@@ -2477,16 +2553,21 @@ class SidebarUI {
                     mimeType: 'image/png',
                     size: blob.size
                 };
-                this.currentPacket.urls.push(newMediaItem);
 
-                await this.sendMessage({
-                    action: 'savePacket',
-                    id: this.currentPacket.id,
-                    name: this.currentPacket.name,
-                    urls: this.currentPacket.urls
-                });
-
-                this.showPacketDetailView(this.currentPacket);
+                if (this.constructorView.classList.contains('active')) {
+                    // Route to constructor instead of existing packet
+                    this.constructorItems.push(newMediaItem);
+                    this.renderConstructorItems();
+                } else if (this.currentPacket) {
+                    this.currentPacket.urls.push(newMediaItem);
+                    await this.sendMessage({
+                        action: 'savePacket',
+                        id: this.currentPacket.id,
+                        name: this.currentPacket.name,
+                        urls: this.currentPacket.urls
+                    });
+                    this.showPacketDetailView(this.currentPacket);
+                }
 
                 // Deactivate clipper UI after successful capture
                 this.handleClipperCancelled();
@@ -2509,6 +2590,7 @@ class SidebarUI {
 
     handleClipperCancelled() {
         this.isClipperManuallyCancelled = true;
+        this.isClipperInvoked = false;
         this.setClipperActive(false);
     }
 
@@ -2538,22 +2620,23 @@ class SidebarUI {
                     size: blob.size
                 };
 
-                if (!this.currentPacket) {
-                    console.warn('[Wildcard] No current packet active, cannot save audio clip');
-                    return;
+                if (this.constructorView.classList.contains('active')) {
+                    // Route to constructor
+                    this.constructorItems.push(newMediaItem);
+                    this.renderConstructorItems();
+                } else if (this.currentPacket) {
+                    console.log('[Wildcard] Adding audio clip to packet:', this.currentPacket.id);
+                    this.currentPacket.urls.push(newMediaItem);
+
+                    await this.sendMessage({
+                        action: 'savePacket',
+                        id: this.currentPacket.id,
+                        name: this.currentPacket.name,
+                        urls: this.currentPacket.urls
+                    });
+
+                    this.showPacketDetailView(this.currentPacket);
                 }
-
-                console.log('[Wildcard] Adding audio clip to packet:', this.currentPacket.id);
-                this.currentPacket.urls.push(newMediaItem);
-
-                await this.sendMessage({
-                    action: 'savePacket',
-                    id: this.currentPacket.id,
-                    name: this.currentPacket.name,
-                    urls: this.currentPacket.urls
-                });
-
-                this.showPacketDetailView(this.currentPacket);
 
                 // Highlight the new item
                 setTimeout(() => {
