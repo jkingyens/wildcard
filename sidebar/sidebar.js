@@ -633,6 +633,7 @@ class SidebarUI {
 
         // Packet detail view
         document.getElementById('packetDetailBackBtn').addEventListener('click', () => this.showDetailView('packets'));
+        document.getElementById('packetDetailCloseBtn').addEventListener('click', () => this.closePacketGroup());
 
         // Constructor view (packets)
         document.getElementById('constructorBackBtn').addEventListener('click', () => this.showDetailView('packets'));
@@ -926,6 +927,22 @@ class SidebarUI {
 
     urlsMatch(u1, u2) {
         return this.normalizeUrl(u1) === this.normalizeUrl(u2);
+    }
+
+    async closePacketGroup() {
+        if (!this.currentPacket) return;
+        try {
+            await this.sendMessage({
+                action: 'closePacketGroup',
+                packetId: this.currentPacket.id
+            });
+            this.showDetailView('packets');
+        } catch (err) {
+            console.error('Failed to close packet group:', err);
+            this.showNotification('Failed to close tab group', 'error');
+            // Still go back if it fails
+            this.showDetailView('packets');
+        }
     }
 
     async showPacketDetailView(packet) {

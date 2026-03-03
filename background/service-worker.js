@@ -778,6 +778,41 @@ async function handleMessage(request, sender, sendResponse) {
                 }
                 break;
             }
+            case 'closePacketGroup': {
+                try {
+                    const { packetId } = request;
+                    const { activeGroups = {} } = await chrome.storage.local.get('activeGroups');
+
+                    // Find all groups associated with this packet
+                    const groupsToClose = [];
+                    for (const [gid, pid] of Object.entries(activeGroups)) {
+                        if (String(pid) === String(packetId)) {
+                            groupsToClose.push(parseInt(gid, 10));
+                        }
+                    }
+
+                    for (const groupId of groupsToClose) {
+                        try {
+                            const tabs = await chrome.tabs.query({ groupId });
+                            if (tabs.length > 0) {
+                                await chrome.tabs.remove(tabs.map(t => t.id));
+                            }
+                            delete activeGroups[groupId];
+                        } catch (e) {
+                            console.warn(`Failed to close group ${groupId}:`, e);
+                            // It might already be closed
+                            delete activeGroups[groupId];
+                        }
+                    }
+
+                    await chrome.storage.local.set({ activeGroups });
+                    sendResponse({ success: true });
+                } catch (err) {
+                    console.error('closePacketGroup error:', err);
+                    sendResponse({ success: false, error: err.message });
+                }
+                break;
+            }
             case 'openTabInGroup': {
                 try {
                     const { url, groupId, packetId } = request;
