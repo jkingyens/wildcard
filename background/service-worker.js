@@ -143,6 +143,139 @@ async function removeTabMapping(tabId) {
     } catch (e) { }
 }
 
+function getVisualSequence(packet) {
+    if (!packet || !packet.urls) return [];
+    const itemsWithIndex = packet.urls.map((item, originalIndex) => ({ item, originalIndex }));
+
+    const pages = itemsWithIndex.filter(({ item }) => {
+        const type = (typeof item === 'object') ? (item.type || 'page') : 'page';
+        return type === 'page' || type === 'link';
+    });
+    const media = itemsWithIndex.filter(({ item }) => (typeof item === 'object' && item.type === 'media'));
+    const wasm = itemsWithIndex.filter(({ item }) => (typeof item === 'object' && item.type === 'wasm'));
+
+    return [...pages, ...media, ...wasm];
+}
+
+async function navigatePacketItems(groupId, direction) {
+    const { activeGroups = {} } = await chrome.storage.local.get('activeGroups');
+    const packetId = activeGroups[groupId];
+    if (!packetId) return;
+
+    try {
+        await initializeSQLite();
+        const db = sqliteManager.getDatabase('packets');
+        const rows = db.exec(`SELECT name, urls FROM packets WHERE rowid = ${packetId}`);
+        if (!rows.length) return;
+
+        const [name, urlsJson] = rows[0].values[0];
+        const packet = { id: packetId, name, urls: JSON.parse(urlsJson) };
+
+        const visualSeq = getVisualSequence(packet);
+        if (visualSeq.length === 0) return;
+
+        const tabs = await chrome.tabs.query({ groupId: groupId });
+        const openUrls = new Set(tabs.map(t => t.url).filter(Boolean));
+
+        const filteredSeq = visualSeq.filter(entry => {
+            const type = (typeof entry.item === 'object') ? (entry.item.type || 'page') : 'page';
+            if (type === 'wasm') return true;
+
+            let itemUrl;
+            if (type === 'page' || type === 'link') {
+                itemUrl = typeof entry.item === 'string' ? entry.item : entry.item.url;
+            } else if (type === 'media') {
+                itemUrl = chrome.runtime.getURL(`sidebar/media.html?id=${entry.item.mediaId}&type=${encodeURIComponent(entry.item.mimeType)}&name=${encodeURIComponent(entry.item.name)}`);
+            }
+            return openUrls.has(itemUrl);
+        });
+
+        if (filteredSeq.length === 0) return;
+
+        // Find current active tab in group
+        const [activeTab] = await chrome.tabs.query({ active: true, groupId: groupId });
+        let currentIndex = -1;
+        if (activeTab) {
+            const activeUrl = getMappedUrlSync(activeTab.id) || activeTab.url;
+            currentIndex = filteredSeq.findIndex(entry => {
+                const item = entry.item;
+                const type = (typeof item === 'object') ? (item.type || 'page') : 'page';
+                if (type === 'page' || type === 'link') {
+                    const url = typeof item === 'string' ? item : item.url;
+                    return urlsMatch(url, activeUrl);
+                } else if (type === 'media') {
+                    const mediaUrl = chrome.runtime.getURL(`sidebar/media.html?id=${item.mediaId}&type=${encodeURIComponent(item.mimeType)}&name=${encodeURIComponent(item.name)}`);
+                    return urlsMatch(mediaUrl, activeUrl);
+                }
+                return false;
+            });
+        }
+
+        let nextVisualIndex;
+        if (currentIndex === -1) {
+            nextVisualIndex = direction > 0 ? 0 : filteredSeq.length - 1;
+        } else {
+            nextVisualIndex = (currentIndex + direction + filteredSeq.length) % filteredSeq.length;
+        }
+
+        const nextEntry = filteredSeq[nextVisualIndex];
+        const nextItem = nextEntry.item;
+        const type = (typeof nextItem === 'object') ? (nextItem.type || 'page') : 'page';
+
+        if (type === 'page' || type === 'link' || type === 'media') {
+            let url;
+            if (type === 'media') {
+                url = chrome.runtime.getURL(`sidebar/media.html?id=${nextItem.mediaId}&type=${encodeURIComponent(nextItem.mimeType)}&name=${encodeURIComponent(nextItem.name)}`);
+            } else {
+                url = typeof nextItem === 'string' ? nextItem : nextItem.url;
+            }
+
+            // Reuse handleMessage logic or simplified version
+            const tabsInGroup = await chrome.tabs.query({ groupId });
+            let existing = null;
+            for (const t of tabsInGroup) {
+                const mapped = getMappedUrlSync(t.id);
+                if (mapped && urlsMatch(mapped, url)) { existing = t; break; }
+                const turl = t.url || t.pendingUrl;
+                if (turl && urlsMatch(turl, url)) { existing = t; break; }
+            }
+
+            if (existing) {
+                await chrome.tabs.update(existing.id, { active: true });
+                await setTabMapping(existing.id, url);
+            }
+        } else if (type === 'wasm') {
+            try {
+                // Execute WASM directly in the background
+                await executeWasm(nextItem);
+
+                // Still notify sidebar for UI sync if it's open
+                if (sidebarPort) {
+                    sidebarPort.postMessage({
+                        type: 'RUN_WASM_ITEM_SYNC',
+                        item: nextItem,
+                        index: nextEntry.originalIndex
+                    });
+                }
+            } catch (err) {
+                console.error('[SW] Background WASM execution failed:', err);
+            }
+        }
+
+        // Notify sidebar about focus change
+        if (sidebarPort) {
+            sidebarPort.postMessage({
+                type: 'ITEM_NAVIGATED',
+                packetId: packetId,
+                index: nextEntry.originalIndex,
+                item: nextItem
+            });
+        }
+    } catch (e) {
+        console.error('[SW] Navigation failed:', e);
+    }
+}
+
 // WasmRuntime helper for Canonical ABI encoding/decoding
 class WasmRuntime {
     constructor() {
@@ -315,7 +448,12 @@ async function handleMessage(request, sender, sendResponse) {
 
         switch (action) {
             case 'PROXY_KEY_DOWN': {
-                if (sidebarPort) {
+                // Find current group of the tab that sent the proxy key
+                if (sender.tab && sender.tab.groupId !== chrome.tabGroups.TAB_GROUP_ID_NONE) {
+                    const direction = request.key === 'ArrowRight' ? 1 : -1;
+                    await navigatePacketItems(sender.tab.groupId, direction);
+                } else if (sidebarPort) {
+                    // Fallback to legacy sidebar-only logic if tab is not in a group
                     sidebarPort.postMessage({
                         type: 'PROXY_KEY_DOWN',
                         key: request.key,
@@ -719,7 +857,9 @@ async function handleMessage(request, sender, sendResponse) {
                                 }
                             } catch (e) { }
                         }
-                        await chrome.tabGroups.update(targetGroupId, { title: packetName, color: 'blue' });
+                        const colors = ['grey', 'blue', 'red', 'yellow', 'green', 'pink', 'purple', 'cyan', 'orange'];
+                        const randomColor = colors[Math.floor(Math.random() * colors.length)];
+                        await chrome.tabGroups.update(targetGroupId, { title: packetName, color: randomColor });
                         if (packetId) {
                             const { activeGroups = {} } = await chrome.storage.local.get('activeGroups');
                             activeGroups[targetGroupId] = packetId;
@@ -734,19 +874,23 @@ async function handleMessage(request, sender, sendResponse) {
                 }
                 break;
             }
-            case 'runWasmPacketItem': {
-                try {
-                    const data = request.bytes || request.data || (request.item && request.item.data);
+                async function executeWasm(item) {
+                    const runtime = new WasmRuntime();
+                    const executionLogs = [];
+
+                    const data = item.bytes || item.data;
                     if (!data) throw new Error("No WASM data provided");
+
                     let binaryString = atob(data);
                     if (binaryString.charCodeAt(0) !== 0 && binaryString.startsWith('AGFz')) {
                         try { binaryString = atob(binaryString); } catch (e) { }
                     }
+
                     const bytes = new Uint8Array(binaryString.length);
                     for (let i = 0; i < binaryString.length; i++) {
                         bytes[i] = binaryString.charCodeAt(i);
                     }
-                    const runtime = new WasmRuntime();
+
                     const sqliteHost = {
                         "execute": (dbNamePtr, dbNameLen, sqlPtr, sqlLen) => {
                             const dbName = runtime.readString(dbNamePtr, dbNameLen);
@@ -775,7 +919,6 @@ async function handleMessage(request, sender, sendResponse) {
                         "query": (dbNamePtr, dbNameLen, sqlPtr, sqlLen) => {
                             const dbName = runtime.readString(dbNamePtr, dbNameLen);
                             const sql = runtime.readString(sqlPtr, sqlLen);
-                            console.log(`[Host] sqlite.query: db=${dbName}, sql=${sql}`);
                             try {
                                 const db = sqliteManager.initDatabase(dbName);
                                 const result = db.exec(sql);
@@ -817,7 +960,7 @@ async function handleMessage(request, sender, sendResponse) {
                             }
                         }
                     };
-                    const executionLogs = [];
+
                     const importObject = {
                         env: {
                             log: (ptr, len) => {
@@ -893,7 +1036,6 @@ async function handleMessage(request, sender, sendResponse) {
                             fd_seek: () => 0,
                             fd_fdstat_get: (fd, statPtr) => {
                                 const view = runtime.getView();
-                                // Basic stat for stdout/stderr
                                 view.setUint8(statPtr, 2); // character device
                                 return 0;
                             },
@@ -910,26 +1052,26 @@ async function handleMessage(request, sender, sendResponse) {
                             }
                         }
                     };
-                    let instance;
-                    try {
-                        const result = await WebAssembly.instantiate(bytes, importObject);
-                        instance = result.instance;
-                    } catch (e) {
-                        if (e instanceof WebAssembly.LinkError) {
-                            throw new Error(`WASM LinkError: ${e.message}. Possible mismatch between generated code and host imports.`);
-                        }
-                        throw e;
-                    }
+
+                    const { instance } = await WebAssembly.instantiate(bytes, importObject);
                     runtime.setInstance(instance);
+
+                    let result;
                     if (instance.exports.run) {
-                        const result = instance.exports.run();
-                        sendResponse({ success: true, result, logs: executionLogs });
+                        result = instance.exports.run();
                     } else if (instance.exports.main) {
-                        const result = instance.exports.main();
-                        sendResponse({ success: true, result, logs: executionLogs });
+                        result = instance.exports.main();
                     } else {
-                        sendResponse({ success: false, error: "No run or main export found", logs: executionLogs });
+                        throw new Error("No run or main export found");
                     }
+
+                    return { success: true, result, logs: executionLogs };
+                }
+
+            case 'runWasmPacketItem': {
+                try {
+                    const result = await executeWasm(request.item || request);
+                    sendResponse(result);
                 } catch (err) {
                     console.error('WASM error:', err);
                     sendResponse({ success: false, error: err.message });

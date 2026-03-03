@@ -625,6 +625,43 @@ h1 {
   box-shadow: var(--shadow);
 }
 
+/* Tab Group Color Indicators */
+.packet-card.group-indicator-grey {
+  border-left: 4px solid #9aa0a6;
+}
+
+.packet-card.group-indicator-blue {
+  border-left: 4px solid #1a73e8;
+}
+
+.packet-card.group-indicator-red {
+  border-left: 4px solid #d93025;
+}
+
+.packet-card.group-indicator-yellow {
+  border-left: 4px solid #f9ab00;
+}
+
+.packet-card.group-indicator-green {
+  border-left: 4px solid #188038;
+}
+
+.packet-card.group-indicator-pink {
+  border-left: 4px solid #d01884;
+}
+
+.packet-card.group-indicator-purple {
+  border-left: 4px solid #9334e6;
+}
+
+.packet-card.group-indicator-cyan {
+  border-left: 4px solid #12b5cb;
+}
+
+.packet-card.group-indicator-orange {
+  border-left: 4px solid #fa903e;
+}
+
 .packet-info {
   display: flex;
   flex-direction: column;

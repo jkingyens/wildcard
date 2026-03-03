@@ -423,6 +423,26 @@ class SidebarUI {
                         target: { tagName: 'PROXY' } // Avoid input check
                     };
                     this.handleKeyDown(syntheticEvent);
+                } else if (msg.type === 'ITEM_NAVIGATED') {
+                    // Background moved the focus (sidebar might be closed or unfocused)
+                    if (this.currentPacket && String(this.currentPacket.id) === String(msg.packetId)) {
+                        this.lastNavigatedIndex = msg.index;
+                        const type = (typeof msg.item === 'object') ? (msg.item.type || 'page') : 'page';
+                        if (type === 'page' || type === 'link') {
+                            this.activeUrl = typeof msg.item === 'string' ? msg.item : msg.item.url;
+                        } else if (type === 'media') {
+                            this.activeUrl = chrome.runtime.getURL(`sidebar/media.html?id=${msg.item.mediaId}&type=${encodeURIComponent(msg.item.mimeType)}&name=${encodeURIComponent(msg.item.name)}`);
+                        }
+                        // Refresh view to show highlight
+                        this.showPacketDetailView(this.currentPacket);
+                    }
+                } else if (msg.type === 'RUN_WASM_ITEM_SYNC') {
+                    // Background already executed it, sidebar just needs to show results if open
+                    if (this.currentPacket && msg.index !== undefined) {
+                        this.lastNavigatedIndex = msg.index;
+                        // Trigger UI refresh to show highlight on the function item
+                        this.showPacketDetailView(this.currentPacket);
+                    }
                 }
             });
             this.port.onDisconnect.addListener(() => {
@@ -1535,6 +1555,17 @@ class SidebarUI {
                 const rows = response.result[0].values;
                 this.entryCount.textContent = rows.length;
 
+                // Sync active group colors
+                const { activeGroups = {} } = await chrome.storage.local.get('activeGroups');
+                const groups = await chrome.tabGroups.query({});
+                const packetToColorMap = {};
+                for (const g of groups) {
+                    const pId = activeGroups[g.id];
+                    if (pId) {
+                        packetToColorMap[pId] = g.color;
+                    }
+                }
+
                 // Build header with Add Packet button
                 const addBtn = document.createElement('button');
                 addBtn.className = 'btn btn-primary btn-sm';
@@ -1557,9 +1588,11 @@ class SidebarUI {
                     } catch (e) { }
 
                     const time = new Date(created).toLocaleString();
+                    const groupColor = packetToColorMap[rowid];
+                    const colorClass = groupColor ? `group-indicator-${groupColor}` : '';
 
                     return `
-                    <div class="packet-card">
+                    <div class="packet-card ${colorClass}" data-id="${rowid}">
                         <div class="packet-info">
                             <span class="packet-name">${this.escapeHtml(name)} <span class="packet-url-count">${itemCount} Items</span></span>
                             <span class="packet-meta">Created ${time}</span>
