@@ -126,6 +126,15 @@ h1 {
   font-weight: 700;
 }
 
+#packetDetailTitle {
+  cursor: pointer;
+  transition: color 0.15s;
+}
+
+#packetDetailTitle:hover {
+  color: var(--primary);
+}
+
 /* ===== BUTTONS ===== */
 .btn {
   display: inline-flex;

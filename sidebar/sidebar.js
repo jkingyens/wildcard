@@ -690,6 +690,7 @@ class SidebarUI {
         // Packet detail view
         document.getElementById('packetDetailBackBtn').addEventListener('click', () => this.handlePacketDetailBack());
         document.getElementById('packetDetailCloseBtn').addEventListener('click', () => this.closePacketGroup());
+        document.getElementById('packetDetailTitle').addEventListener('click', () => this.renameCurrentPacket());
         if (this.addMediaDetailBtn) {
             this.addMediaDetailBtn.addEventListener('click', () => {
                 if (this.mediaAddOptions) {
@@ -956,6 +957,33 @@ class SidebarUI {
         } catch (err) {
             console.error('handleMediaClipFinished failed:', err);
             this.showNotification('Failed to save clip: ' + err.message, 'error');
+        }
+    }
+
+    async renameCurrentPacket() {
+        if (!this.currentPacket) return;
+
+        const newName = window.prompt('Rename this packet:', this.currentPacket.name);
+        if (!newName || !newName.trim() || newName === this.currentPacket.name) return;
+
+        try {
+            const resp = await this.sendMessage({
+                action: 'savePacket',
+                id: this.currentPacket.id,
+                name: newName.trim(),
+                urls: this.currentPacket.urls
+            });
+
+            if (resp && resp.success) {
+                this.currentPacket.name = newName.trim();
+                document.getElementById('packetDetailTitle').textContent = this.currentPacket.name;
+                this.showNotification('Packet renamed successfully', 'success');
+            } else {
+                throw new Error(resp?.error || 'Rename failed');
+            }
+        } catch (err) {
+            console.error('Rename packet failed:', err);
+            this.showNotification('Failed to rename packet: ' + err.message, 'error');
         }
     }
 
