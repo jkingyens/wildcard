@@ -147,9 +147,12 @@
     <section class="detail-section">
       <div class="section-header">
         <h3>🖼️ Media</h3>
-        <span id="packetMediaCount" class="badge">0</span>
+        <div style="display: flex; gap: 8px; align-items: center;">
+          <button id="addMediaDetailBtn" class="btn btn-secondary btn-sm" title="Add Media">➕</button>
+          <span id="packetMediaCount" class="badge">0</span>
+        </div>
       </div>
-      <div id="mediaDropZone" class="media-drop-zone">
+      <div id="mediaDropZone" class="media-drop-zone hidden">
         <div class="drop-zone-icon">📥</div>
         <p>Drop media files here</p>
       </div>

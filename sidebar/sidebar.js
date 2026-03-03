@@ -319,6 +319,8 @@ class SidebarUI {
         this.packetDetailPageCount = document.getElementById('packetDetailPageCount');
         this.packetDataCount = document.getElementById('packetDataCount');
         this.packetDataList = document.getElementById('packetDataList');
+        this.mediaDropZone = document.getElementById('mediaDropZone');
+        this.addMediaDetailBtn = document.getElementById('addMediaDetailBtn');
 
         // Wits view elements
         this.witsView = document.getElementById('witsView');
@@ -636,6 +638,11 @@ class SidebarUI {
         // Packet detail view
         document.getElementById('packetDetailBackBtn').addEventListener('click', () => this.showDetailView('packets'));
         document.getElementById('packetDetailCloseBtn').addEventListener('click', () => this.closePacketGroup());
+        if (this.addMediaDetailBtn) {
+            this.addMediaDetailBtn.addEventListener('click', () => {
+                this.mediaDropZone.classList.toggle('hidden');
+            });
+        }
 
         // Constructor view (packets)
         document.getElementById('constructorBackBtn').addEventListener('click', () => this.showDetailView('packets'));
@@ -693,11 +700,13 @@ class SidebarUI {
         document.getElementById('witDeleteBtn').addEventListener('click', () => this.deleteWit());
 
         // Drop zone handlers
-        const dropZone = document.getElementById('mediaDropZone');
-        dropZone.addEventListener('dragover', (e) => this.handleMediaDragOver(e));
-        dropZone.addEventListener('dragleave', () => dropZone.classList.remove('drag-active'));
-        dropZone.addEventListener('drop', (e) => this.handleMediaDrop(e));
-        dropZone.addEventListener('click', () => document.getElementById('mediaFileInput').click());
+        const dropZone = this.mediaDropZone;
+        if (dropZone) {
+            dropZone.addEventListener('dragover', (e) => this.handleMediaDragOver(e));
+            dropZone.addEventListener('dragleave', () => dropZone.classList.remove('drag-active'));
+            dropZone.addEventListener('drop', (e) => this.handleMediaDrop(e));
+            dropZone.addEventListener('click', () => document.getElementById('mediaFileInput').click());
+        }
 
         // AI Prompt Modal
         document.getElementById('aiGenerateWasmBtn').addEventListener('click', () => this.openAiPromptModal());
@@ -1303,13 +1312,13 @@ class SidebarUI {
         e.preventDefault();
         e.stopPropagation();
         e.dataTransfer.dropEffect = 'copy';
-        document.getElementById('mediaDropZone').classList.add('drag-active');
+        this.mediaDropZone.classList.add('drag-active');
     }
 
     async handleMediaDrop(e) {
         e.preventDefault();
         e.stopPropagation();
-        const dropZone = document.getElementById('mediaDropZone');
+        const dropZone = this.mediaDropZone;
         dropZone.classList.remove('drag-active');
 
         const files = Array.from(e.dataTransfer.files);
