@@ -321,6 +321,7 @@ class SidebarUI {
         this.packetDataList = document.getElementById('packetDataList');
         this.mediaDropZone = document.getElementById('mediaDropZone');
         this.addMediaDetailBtn = document.getElementById('addMediaDetailBtn');
+        this.addPageDetailBtn = document.getElementById('addPageDetailBtn');
 
         // Wits view elements
         this.witsView = document.getElementById('witsView');
@@ -564,9 +565,15 @@ class SidebarUI {
         try {
             const resp = await this.sendMessage({ action: 'getCurrentTab' });
             if (!resp.success) throw new Error(resp.error || 'Could not get current tab');
-            const { title, url } = resp.tab;
+            const { title, url, groupId } = resp.tab;
 
-            // Avoid duplicates
+            // Rule 1: Only add tabs that are not inside existing tab groups
+            if (groupId !== -1) {
+                this.showNotification('Cannot add tab: It is already in a tab group', 'error');
+                return;
+            }
+
+            // Rule 2: Only add tabs that are not already included in the packet
             if (this.currentPacket.urls.some(item => {
                 const itemUrl = typeof item === 'string' ? item : item.url;
                 return this.urlsMatch(itemUrl, url);
@@ -585,7 +592,18 @@ class SidebarUI {
             });
 
             if (saveResp && saveResp.success) {
-                this.showNotification('Added to current packet', 'success');
+                // ADDITION: Join the packet's tab group immediately
+                const joinResp = await this.sendMessage({
+                    action: 'joinPacketGroup',
+                    tabId: resp.tab.id,
+                    packetId: this.currentPacket.id
+                });
+
+                if (joinResp && joinResp.success) {
+                    this.activePacketGroupId = joinResp.groupId;
+                }
+
+                this.showNotification('Added to current packet and grouped', 'success');
                 this.showPacketDetailView(this.currentPacket);
             } else {
                 throw new Error(saveResp?.error || 'Failed to save packet');
@@ -641,6 +659,11 @@ class SidebarUI {
         if (this.addMediaDetailBtn) {
             this.addMediaDetailBtn.addEventListener('click', () => {
                 this.mediaDropZone.classList.toggle('hidden');
+            });
+        }
+        if (this.addPageDetailBtn) {
+            this.addPageDetailBtn.addEventListener('click', () => {
+                this.addTabToCurrentPacket();
             });
         }
 
@@ -1406,7 +1429,10 @@ class SidebarUI {
     }
 
     renderCollections(collections) {
-        if (collections.length === 0) {
+        // Filter out internal packet databases (starting with packet_)
+        const filtered = collections.filter(name => !name.startsWith('packet_'));
+
+        if (filtered.length === 0) {
             this.collectionsList.innerHTML = `
               <div class="empty-state">
                 <div class="empty-icon">🗄️</div>
@@ -1419,7 +1445,7 @@ class SidebarUI {
         this.collectionsList.innerHTML = '';
 
         // System collections first (wits, then packets, then schemas), then alphabetical
-        const sorted = collections.sort((a, b) => {
+        const sorted = filtered.sort((a, b) => {
             if (a === 'wits') return -1;
             if (b === 'wits') return 1;
             if (a === 'packets') return -1;

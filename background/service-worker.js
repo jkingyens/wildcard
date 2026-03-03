@@ -837,6 +837,51 @@ async function handleMessage(request, sender, sendResponse) {
                 }
                 break;
             }
+            case 'joinPacketGroup': {
+                try {
+                    const { tabId, packetId } = request;
+                    const { activeGroups = {} } = await chrome.storage.local.get('activeGroups');
+                    const groups = await chrome.tabGroups.query({});
+
+                    let targetGroupId = null;
+                    for (const g of groups) {
+                        if (String(activeGroups[g.id]) === String(packetId)) {
+                            targetGroupId = g.id;
+                            break;
+                        }
+                    }
+
+                    if (targetGroupId !== null) {
+                        await chrome.tabs.group({ tabIds: [tabId], groupId: targetGroupId });
+                        sendResponse({ success: true, groupId: targetGroupId });
+                    } else {
+                        // Create new group
+                        targetGroupId = await chrome.tabs.group({ tabIds: [tabId] });
+                        let packetName = 'Packet';
+                        try {
+                            const db = sqliteManager.getDatabase('packets');
+                            if (db) {
+                                const result = db.exec(`SELECT name FROM packets WHERE rowid = ${packetId}`);
+                                if (result.length && result[0].values.length) {
+                                    packetName = result[0].values[0][0];
+                                }
+                            }
+                        } catch (e) { }
+
+                        const colors = ['grey', 'blue', 'red', 'yellow', 'green', 'pink', 'purple', 'cyan', 'orange'];
+                        const randomColor = colors[Math.floor(Math.random() * colors.length)];
+                        await chrome.tabGroups.update(targetGroupId, { title: packetName, color: randomColor });
+
+                        activeGroups[targetGroupId] = packetId;
+                        await chrome.storage.local.set({ activeGroups });
+                        sendResponse({ success: true, groupId: targetGroupId });
+                    }
+                } catch (err) {
+                    console.error('joinPacketGroup error:', err);
+                    sendResponse({ success: false, error: err.message });
+                }
+                break;
+            }
             case 'openTabInGroup': {
                 try {
                     const { url, groupId, packetId } = request;
