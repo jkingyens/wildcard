@@ -624,6 +624,7 @@ class SidebarUI {
                 }
 
                 this.showNotification('Added to current packet and grouped', 'success');
+                if (this.editMode) this.toggleEditMode();
                 this.showPacketDetailView(this.currentPacket);
             } else {
                 throw new Error(saveResp?.error || 'Failed to save packet');
@@ -1608,6 +1609,7 @@ class SidebarUI {
                 name: this.currentPacket.name,
                 urls: this.currentPacket.urls
             });
+            if (this.editMode) this.toggleEditMode();
             this.showPacketDetailView(this.currentPacket);
             this.showNotification('Packet updated with new media', 'success');
         } catch (err) {
@@ -2804,6 +2806,7 @@ class SidebarUI {
                         name: this.currentPacket.name,
                         urls: this.currentPacket.urls
                     });
+                    if (this.editMode) this.toggleEditMode();
                     this.showPacketDetailView(this.currentPacket);
                 } else {
                     this.constructorItems.push(newWasmItem);
@@ -3129,6 +3132,7 @@ class SidebarUI {
                         urls: this.currentPacket.urls
                     });
 
+                    if (this.editMode) this.toggleEditMode();
                     this.showPacketDetailView(this.currentPacket);
                 }
 
