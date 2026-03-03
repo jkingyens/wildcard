@@ -598,6 +598,30 @@ async function handleMessage(request, sender, sendResponse) {
                 }
                 break;
             }
+            case 'ensurePacketDatabase': {
+                try {
+                    const packetId = request.packetId;
+                    const dbName = `packet_${packetId}`;
+                    await sqliteManager.restoreCheckpoint(dbName, chrome.storage.local);
+                    const db = sqliteManager.initDatabase(dbName);
+                    db.exec(`
+                        CREATE TABLE IF NOT EXISTS associations (
+                          id INTEGER PRIMARY KEY AUTOINCREMENT,
+                          source_id TEXT,
+                          target_id TEXT,
+                          type TEXT,
+                          metadata TEXT,
+                          created TEXT DEFAULT (datetime('now'))
+                        );
+                    `);
+                    await sqliteManager.saveCheckpoint(dbName, chrome.storage.local);
+                    sendResponse({ success: true, dbName });
+                } catch (err) {
+                    console.error('ensurePacketDatabase error:', err);
+                    sendResponse({ success: false, error: err.message });
+                }
+                break;
+            }
             case 'getCurrentTab': {
                 const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
                 if (!tab) {

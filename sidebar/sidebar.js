@@ -317,6 +317,8 @@ class SidebarUI {
         this.packetDetailTitle = document.getElementById('packetDetailTitle');
         this.packetPageList = document.getElementById('packetPageList');
         this.packetDetailPageCount = document.getElementById('packetDetailPageCount');
+        this.packetDataCount = document.getElementById('packetDataCount');
+        this.packetDataList = document.getElementById('packetDataList');
 
         // Wits view elements
         this.witsView = document.getElementById('witsView');
@@ -971,10 +973,12 @@ class SidebarUI {
         const pageList = document.getElementById('packetPageList');
         const mediaList = document.getElementById('packetMediaList');
         const wasmList = document.getElementById('packetWasmList');
+        const dataList = document.getElementById('packetDataList');
 
         pageList.innerHTML = '';
         mediaList.innerHTML = '';
         wasmList.innerHTML = '';
+        dataList.innerHTML = '<p class="hint">Loading data...</p>';
 
         let pageCount = 0;
         let mediaCount = 0;
@@ -1078,6 +1082,36 @@ class SidebarUI {
         if (pageCount === 0) pageList.innerHTML = '<p class="hint">No pages in this packet.</p>';
         if (mediaCount === 0) mediaList.innerHTML = '<p class="hint">No media in this packet.</p>';
         if (wasmCount === 0) wasmList.innerHTML = '<p class="hint">No Wasm modules in this packet.</p>';
+
+        // Load and render per-packet data
+        try {
+            const packetDbName = `packet_${packet.id}`;
+            await this.sendMessage({ action: 'ensurePacketDatabase', packetId: packet.id });
+            const schemaResp = await this.sendMessage({ action: 'getSchema', name: packetDbName });
+
+            if (schemaResp.success) {
+                const tables = schemaResp.schema;
+                this.packetDataCount.textContent = tables.length;
+
+                if (tables.length === 0) {
+                    dataList.innerHTML = '<p class="hint">No tables in this packet.</p>';
+                } else {
+                    dataList.innerHTML = tables.map(table => `
+                        <div class="entry-row" style="cursor: default; padding: 6px 10px; background: var(--bg-alt); margin-bottom: 4px; border-radius: 6px;">
+                            <span class="entry-id">📋</span>
+                            <span class="entry-label" style="font-family: inherit;">${this.escapeHtml(table.name)}</span>
+                        </div>
+                    `).join('');
+                }
+            } else {
+                dataList.innerHTML = '<p class="hint">Failed to load data schema.</p>';
+                this.packetDataCount.textContent = '0';
+            }
+        } catch (err) {
+            console.error('Failed to load packet data:', err);
+            dataList.innerHTML = '<p class="hint">Error loading packet data.</p>';
+            this.packetDataCount.textContent = '0';
+        }
 
         this.updateClipperState();
     }
