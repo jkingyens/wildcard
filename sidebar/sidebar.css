@@ -759,11 +759,41 @@ h1 {
 }
 
 .drag-handle {
+  width: 20px;
+  height: 24px;
   cursor: grab;
   color: var(--text-muted);
-  font-size: 16px;
-  line-height: 1;
   flex-shrink: 0;
+  display: none;
+  align-items: center;
+  justify-content: center;
+  opacity: 0.5;
+  transition: opacity 0.2s, color 0.2s;
+  background-image: linear-gradient(to bottom,
+      currentColor 0,
+      currentColor 2px,
+      transparent 2px,
+      transparent 4px,
+      currentColor 4px,
+      currentColor 6px,
+      transparent 6px,
+      transparent 8px,
+      currentColor 8px,
+      currentColor 10px,
+      transparent 10px);
+  background-size: 14px 10px;
+  background-position: center;
+  background-repeat: no-repeat;
+  margin-right: 4px;
+}
+
+.edit-mode .drag-handle {
+  display: flex;
+}
+
+.drag-handle:hover {
+  opacity: 1;
+  color: var(--primary);
 }
 
 .drag-handle:active {
@@ -933,30 +963,79 @@ h1 {
   width: 100%;
 }
 
-.media-drop-zone {
+.media-add-split-container {
+  display: flex;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+
+.media-add-split-container .half {
+  flex: 1;
+  margin-bottom: 0;
+}
+
+.media-drop-zone,
+.media-record-btn {
   border: 2px dashed var(--border);
   border-radius: 8px;
-  padding: 20px;
+  padding: 15px 10px;
   text-align: center;
   color: var(--text-muted);
   transition: all 0.2s;
   cursor: pointer;
-  margin-bottom: 12px;
   background: var(--bg-alt);
   opacity: 0.8;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
 }
 
 .media-drop-zone:hover,
-.media-drop-zone.drag-active {
+.media-drop-zone.drag-active,
+.media-record-btn:hover {
   border-color: var(--primary);
   background: var(--info-bg);
   color: var(--primary);
   opacity: 1;
 }
 
-.drop-zone-icon {
+.media-record-btn:active {
+  transform: scale(0.98);
+}
+
+.media-record-btn.recording {
+  border-color: var(--danger);
+  background: var(--danger-bg);
+  color: var(--danger);
+  opacity: 1;
+}
+
+.media-record-btn.recording .record-zone-icon {
+  animation: pulse 1.5s infinite;
+}
+
+@keyframes pulse {
+  0% {
+    transform: scale(1);
+    opacity: 1;
+  }
+
+  50% {
+    transform: scale(1.1);
+    opacity: 0.7;
+  }
+
+  100% {
+    transform: scale(1);
+    opacity: 1;
+  }
+}
+
+.drop-zone-icon,
+.record-zone-icon {
   font-size: 24px;
-  margin-bottom: 8px;
+  margin-bottom: 4px;
 }
 
 /* ===== SCHEMA CONSTRUCTOR VIEW ===== */
@@ -1592,22 +1671,22 @@ h1 {
 
 /* Visibility Control */
 .constructor-remove-btn,
-.reorder-handle,
+.drag-handle,
 .section-add-btn,
 #deletePacketDetailBtn {
   display: none !important;
 }
 
 .edit-mode .constructor-remove-btn,
-.edit-mode .reorder-handle,
+.edit-mode .drag-handle,
 .edit-mode .section-add-btn,
 .edit-mode #deletePacketDetailBtn {
   display: inline-flex !important;
 }
 
 /* Reorder handle specific */
-.edit-mode .reorder-handle {
-  display: block !important;
+.edit-mode .drag-handle {
+  display: flex !important;
   margin-right: 4px;
 }
 

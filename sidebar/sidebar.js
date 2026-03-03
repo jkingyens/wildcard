@@ -320,6 +320,8 @@ class SidebarUI {
         this.packetDataCount = document.getElementById('packetDataCount');
         this.packetDataList = document.getElementById('packetDataList');
         this.mediaDropZone = document.getElementById('mediaDropZone');
+        this.mediaAddOptions = document.getElementById('mediaAddOptions');
+        this.mediaRecordBtn = document.getElementById('mediaRecordBtn');
         this.addMediaDetailBtn = document.getElementById('addMediaDetailBtn');
         this.addPageDetailBtn = document.getElementById('addPageDetailBtn');
         this.editToggleBtn = document.getElementById('editToggleBtn');
@@ -375,6 +377,7 @@ class SidebarUI {
         this.theme = 'light';
         this.activeUrl = null;
         this.isClipperManuallyCancelled = false;
+        this.isMicRecording = false;
         this.isClipperInvoked = false; // Manual activation state for activeTab
         this.isClipperIconProcessing = false; // Guard for rapid clicks
         this.editMode = false;
@@ -490,8 +493,20 @@ class SidebarUI {
             } else if (message.type === 'CLIPPER_CANCELLED') {
                 this.handleClipperCancelled();
             } else if (message.type === 'AUDIO_CLIP_FINISHED') {
-                console.log('[Sidebar] Received AUDIO_CLIP_FINISHED message, dataUrl length:', message.dataUrl?.length);
+                this.isMicRecording = false;
+                this.updateMicRecordingUI();
                 this.handleAudioClipFinished(message.dataUrl);
+            } else if (message.type === 'RECORDING_STARTED') {
+                this.isMicRecording = true;
+                this.updateMicRecordingUI();
+            } else if (message.type === 'RECORDING_ERROR') {
+                this.isMicRecording = false;
+                this.updateMicRecordingUI();
+                if (message.error && (message.error.includes('NotAllowedError') || message.error.includes('Permission dismissed'))) {
+                    this.handlePermissionError();
+                } else {
+                    this.showNotification('Recording error: ' + message.error, 'error');
+                }
             } else if (message.type === 'OFFSCREEN_LOG') {
                 console.log('[Offscreen-Relay]', message.message);
             }
@@ -661,7 +676,32 @@ class SidebarUI {
         document.getElementById('packetDetailCloseBtn').addEventListener('click', () => this.closePacketGroup());
         if (this.addMediaDetailBtn) {
             this.addMediaDetailBtn.addEventListener('click', () => {
-                this.mediaDropZone.classList.toggle('hidden');
+                if (this.mediaAddOptions) {
+                    this.mediaAddOptions.classList.toggle('hidden');
+                } else {
+                    this.mediaDropZone.classList.toggle('hidden');
+                }
+            });
+        }
+
+        if (this.mediaRecordBtn) {
+            this.mediaRecordBtn.addEventListener('click', async () => {
+                if (this.isMicRecording) {
+                    await this.sendMessage({ action: 'stopMicRecording' });
+                } else {
+                    try {
+                        const resp = await this.sendMessage({ action: 'startMicRecording' });
+                        if (!resp || !resp.success) throw new Error(resp?.error || 'Failed to start');
+                    } catch (err) {
+                        if (err.name === 'NotAllowedError' || err.message.includes('Permission dismissed')) {
+                            this.handlePermissionError();
+                        } else {
+                            this.showNotification('Failed to start recording: ' + err.message, 'error');
+                        }
+                        this.isMicRecording = false;
+                        this.updateMicRecordingUI();
+                    }
+                }
             });
         }
         if (this.addPageDetailBtn) {
@@ -791,17 +831,46 @@ class SidebarUI {
 
     toggleEditMode() {
         this.editMode = !this.editMode;
-        if (this.packetDetailView) {
-            if (this.editMode) {
-                this.packetDetailView.classList.add('edit-mode');
-                this.editToggleBtn.classList.add('active');
-            } else {
-                this.packetDetailView.classList.remove('edit-mode');
-                this.editToggleBtn.classList.remove('active');
+        if (this.editMode) {
+            document.body.classList.add('edit-mode');
+            if (this.packetDetailView) this.packetDetailView.classList.add('edit-mode');
+            if (this.constructorView) this.constructorView.classList.add('edit-mode');
+            this.editToggleBtn.classList.add('active');
+        } else {
+            document.body.classList.remove('edit-mode');
+            if (this.packetDetailView) this.packetDetailView.classList.remove('edit-mode');
+            if (this.constructorView) this.constructorView.classList.remove('edit-mode');
+            this.editToggleBtn.classList.remove('active');
+            // Ensure media dropbox is collapsed when exiting edit mode
+            if (this.mediaAddOptions) {
+                this.mediaAddOptions.classList.add('hidden');
             }
         }
         if (this.currentPacket) {
             this.showPacketDetailView(this.currentPacket);
+        }
+        if (this.constructorView && this.constructorView.classList.contains('active')) {
+            this.renderConstructorItems();
+        }
+    }
+
+    handlePermissionError() {
+        const openPermission = confirm('Wildcard needs microphone permission to record. Open a new tab to grant it?');
+        if (openPermission) {
+            chrome.tabs.create({ url: chrome.runtime.getURL('sidebar/permission.html') });
+        }
+    }
+
+    updateMicRecordingUI() {
+        if (!this.mediaRecordBtn) return;
+        if (this.isMicRecording) {
+            this.mediaRecordBtn.classList.add('recording');
+            this.mediaRecordBtn.querySelector('p').textContent = 'Recording...';
+            this.mediaRecordBtn.querySelector('.record-zone-icon').textContent = '⏹️';
+        } else {
+            this.mediaRecordBtn.classList.remove('recording');
+            this.mediaRecordBtn.querySelector('p').textContent = 'Record';
+            this.mediaRecordBtn.querySelector('.record-zone-icon').textContent = '🎤';
         }
     }
 
@@ -863,10 +932,16 @@ class SidebarUI {
             // Check if types match - although dragover should handle this, double check
             const srcItem = this.currentPacket.urls[srcIndex];
             const targetItem = this.currentPacket.urls[targetIndex];
-            const srcType = (typeof srcItem === 'object') ? (srcItem.type || 'page') : 'page';
-            const targetType = (typeof targetItem === 'object') ? (targetItem.type || 'page') : 'page';
+            // Normalize types for comparison (page and link both count as "page" section)
+            const getGroup = (item) => {
+                const t = (typeof item === 'object') ? (item.type || 'page') : 'page';
+                return (t === 'link') ? 'page' : t;
+            };
 
-            if (srcType !== targetType) {
+            const srcGroup = getGroup(srcItem);
+            const targetGroup = getGroup(targetItem);
+
+            if (srcGroup !== targetGroup) {
                 this.showNotification('Cannot move items between sections', 'error');
                 return;
             }
@@ -1161,7 +1236,7 @@ class SidebarUI {
 
                 const faviconUrl = `https://www.google.com/s2/favicons?domain=${hostname}&sz=32`;
                 card.innerHTML = `
-                    <span class="reorder-handle">↕️</span>
+                    <span class="drag-handle" title="Drag to reorder"></span>
                     <img src="${faviconUrl}" class="packet-page-favicon" onerror="this.src='data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjQgMjQ+PHBhdGggZmlsbD0iI2NjYyIgZD0iTTEyIDJDNi40OCAyIDIgNi40OCAyIDEyczQuNDggMTAgMTAgMTAgMTAtNC40OCAxMC0xMFMxNy41MiAyIDEyIDJ6bS0xIDE3LjkyVjE5aC0ydjMtLjA4QzUuNjEgMTguNTMgMi41IDE1LjEyIDIuNSAxMWMwLS45OC4Small-1LjkyLjUtMi44bDMuNTUgMy41NVYxOS45MnpNMjEgMTEuMzhWMTJjMCA0LjQxLTMuNiA4LTggOGgtMXYtMmgtMmwtMy0zVjlsMy0zIDIuMSAyLjFjLjIxLS42My42OC0xLjExIDEuNC0xLjExLjgzIDAgMS41LjY3IDEuNSAxLjV2My41aDN2LTNoMS42MWwuMzktLjM5YzIuMDEgMS4xMSAzLjUgMy4zNSAzLjUgNS44OHoiLz48L3N2Zz4='">
                     <div class="packet-page-info">
                         <div class="packet-page-hostname">${this.escapeHtml(hostname)}</div>
@@ -1196,7 +1271,7 @@ class SidebarUI {
                 const isImage = item.mimeType?.startsWith('image/');
                 const icon = isImage ? '🖼️' : (item.mimeType?.startsWith('video/') ? '🎬' : '🎵');
                 card.innerHTML = `
-                    <span class="reorder-handle">↕️</span>
+                    <span class="drag-handle" title="Drag to reorder"></span>
                     <div class="packet-media-preview" id="detail-preview-${item.mediaId}-${index}">${icon}</div>
                     <div class="packet-media-info">
                         <div class="packet-media-name">${this.escapeHtml(item.name)}</div>
@@ -1226,7 +1301,7 @@ class SidebarUI {
                 const isSelected = (index === this.lastNavigatedIndex);
                 card.className = `packet-page-card wasm ${isSelected ? 'active' : ''}`;
                 card.innerHTML = `
-                    <span class="reorder-handle">↕️</span>
+                    <span class="drag-handle" title="Drag to reorder"></span>
                     <div class="packet-page-info">
                         <div class="packet-page-title">${this.escapeHtml(item.prompt || item.name)}</div>
                     </div>
@@ -1271,7 +1346,7 @@ class SidebarUI {
                 } else {
                     dataList.innerHTML = tables.map(table => `
                         <div class="entry-row" style="cursor: default; padding: 6px 10px; background: var(--bg-alt); margin-bottom: 4px; border-radius: 6px;">
-                            <span class="entry-id">📋</span>
+                            <span class="drag-handle"></span>
                             <span class="entry-label" style="font-family: inherit;">${this.escapeHtml(table.name)}</span>
                         </div>
                     `).join('');
@@ -2168,7 +2243,7 @@ class SidebarUI {
             if (item.type === 'wasm') {
                 card.classList.add('wasm');
                 card.innerHTML = `
-                    <span class="drag-handle" title="Drag to reorder">⠿</span>
+                    <span class="drag-handle" title="Drag to reorder"></span>
                     <div class="constructor-card-info">
                         <div class="constructor-card-title">
                             <span class="type-badge wasm">WASM</span>
@@ -2182,7 +2257,7 @@ class SidebarUI {
                 const isImage = item.mimeType.startsWith('image/');
                 const icon = isImage ? '🖼️' : (item.mimeType.startsWith('video/') ? '🎬' : '🎵');
                 card.innerHTML = `
-                    <span class="drag-handle" title="Drag to reorder">⠿</span>
+                    <span class="drag-handle" title="Drag to reorder"></span>
                     <div class="constructor-card-info">
                         <div class="constructor-card-title">
                             <span class="type-badge media">MEDIA</span>
@@ -2194,7 +2269,7 @@ class SidebarUI {
             } else {
                 // Page
                 card.innerHTML = `
-                    <span class="drag-handle" title="Drag to reorder">⠿</span>
+                    <span class="drag-handle" title="Drag to reorder"></span>
                     <div class="constructor-card-info">
                         <div class="constructor-card-title">
                             <span class="type-badge web">WEB</span>

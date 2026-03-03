@@ -75,13 +75,7 @@ chrome.commands.onCommand.addListener(async (command) => {
     }
 });
 
-async function initiateAudioRecording(streamId, targetTabId) {
-    console.log('[SW] initiateAudioRecording for tab:', targetTabId);
-
-    // 1. Ensure clipper is active on that tab
-    await chrome.tabs.sendMessage(targetTabId, { type: 'SET_CLIPPER_ACTIVE', active: true }).catch(() => { });
-
-    // 2. Create offscreen document if it doesn't exist
+async function ensureOffscreenDocument() {
     const existingContexts = await chrome.runtime.getContexts({
         contextTypes: ['OFFSCREEN_DOCUMENT']
     });
@@ -90,12 +84,22 @@ async function initiateAudioRecording(streamId, targetTabId) {
         console.log('[SW] Creating offscreen document');
         await chrome.offscreen.createDocument({
             url: 'offscreen/offscreen.html',
-            reasons: ['USER_MEDIA'],
-            justification: 'Capture tab audio for clipping tool'
+            reasons: ['USER_MEDIA', 'DISPLAY_MEDIA'],
+            justification: 'Capture audio for clipping tool'
         });
         // Small delay to ensure script is loaded
         await new Promise(r => setTimeout(r, 500));
     }
+}
+
+async function initiateAudioRecording(streamId, targetTabId) {
+    console.log('[SW] initiateAudioRecording for tab:', targetTabId);
+
+    // 1. Ensure clipper is active on that tab
+    await chrome.tabs.sendMessage(targetTabId, { type: 'SET_CLIPPER_ACTIVE', active: true }).catch(() => { });
+
+    // 2. Create offscreen document if it doesn't exist
+    await ensureOffscreenDocument();
 
     // 3. Start recording in offscreen
     console.log('[SW] Sending START_RECORDING to offscreen');
@@ -447,6 +451,29 @@ async function handleMessage(request, sender, sendResponse) {
         await initializeSQLite();
 
         switch (action) {
+            case 'startMicRecording': {
+                try {
+                    console.log('[SW] startMicRecording action received. Ensuring offscreen document...');
+                    await ensureOffscreenDocument();
+                    console.log('[SW] Offscreen document ready. Sending START_MIC_RECORDING to offscreen...');
+                    chrome.runtime.sendMessage({ type: 'START_MIC_RECORDING' });
+                    sendResponse({ success: true });
+                } catch (err) {
+                    console.error('[SW] startMicRecording failed:', err);
+                    sendResponse({ success: false, error: err.message || 'Failed to start offscreen recording' });
+                }
+                break;
+            }
+            case 'stopMicRecording': {
+                chrome.runtime.sendMessage({ type: 'STOP_RECORDING' });
+                sendResponse({ success: true });
+                break;
+            }
+            case 'startRecording': {
+                await initiateAudioRecording(request.streamId, request.tabId);
+                sendResponse({ success: true });
+                break;
+            }
             case 'PROXY_KEY_DOWN': {
                 // Find current group of the tab that sent the proxy key
                 if (sender.tab && sender.tab.groupId !== chrome.tabGroups.TAB_GROUP_ID_NONE) {

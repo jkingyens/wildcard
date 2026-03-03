@@ -13,10 +13,63 @@ let data = [];
 chrome.runtime.onMessage.addListener(async (message) => {
     if (message.type === 'START_RECORDING') {
         startRecording(message.streamId);
+    } else if (message.type === 'START_MIC_RECORDING') {
+        startMicRecording();
     } else if (message.type === 'STOP_RECORDING') {
         stopRecording();
     }
 });
+
+async function startMicRecording() {
+    if (recorder && recorder.state !== 'inactive') return;
+
+    log('[Offscreen] Starting microphone recording');
+    try {
+        const stream = await navigator.mediaDevices.getUserMedia({
+            audio: true,
+            video: false
+        });
+
+        log('[Offscreen] Mic stream obtained');
+        setupRecorder(stream);
+    } catch (e) {
+        log(`[Offscreen] Mic recording failed. Name: ${e.name}, Message: ${e.message}`);
+        chrome.runtime.sendMessage({
+            type: 'RECORDING_ERROR',
+            error: `${e.name}: ${e.message}`
+        });
+    }
+}
+
+function setupRecorder(stream) {
+    recorder = new MediaRecorder(stream, { mimeType: 'audio/webm' });
+    data = [];
+
+    recorder.ondataavailable = (event) => {
+        if (event.data.size > 0) {
+            data.push(event.data);
+        }
+    };
+
+    recorder.onstop = () => {
+        log('[Offscreen] Recorder stopped, chunks: ' + data.length);
+        const blob = new Blob(data, { type: 'audio/webm' });
+        const reader = new FileReader();
+        reader.onload = () => {
+            chrome.runtime.sendMessage({
+                type: 'AUDIO_RECORDING_RESULT',
+                dataUrl: reader.result
+            });
+        };
+        reader.readAsDataURL(blob);
+
+        stream.getTracks().forEach(t => t.stop());
+    };
+
+    recorder.start();
+    log('[Offscreen] Recorder started');
+    chrome.runtime.sendMessage({ type: 'RECORDING_STARTED' });
+}
 
 async function startRecording(streamId) {
     if (recorder && recorder.state !== 'inactive') return;
@@ -33,47 +86,14 @@ async function startRecording(streamId) {
             video: false
         });
 
-        log('[Offscreen] Stream obtained, tracks:', stream.getTracks().length);
+        log('[Offscreen] Stream obtained');
 
         // Continue playing audio in the tab while recording
         const output = new AudioContext();
         const source = output.createMediaStreamSource(stream);
         source.connect(output.destination);
 
-        recorder = new MediaRecorder(stream, { mimeType: 'audio/webm' });
-        data = [];
-
-        recorder.ondataavailable = (event) => {
-            if (event.data.size > 0) {
-                log('[Offscreen] Data available, size: ' + event.data.size);
-                data.push(event.data);
-            }
-        };
-
-        recorder.onstop = () => {
-            log('[Offscreen] Recorder stopped, total chunks: ' + data.length);
-            const blob = new Blob(data, { type: 'audio/webm' });
-            log('[Offscreen] Blob created, size: ' + blob.size);
-            const reader = new FileReader();
-            reader.onload = () => {
-                log('[Offscreen] Sending AUDIO_RECORDING_RESULT to background');
-                chrome.runtime.sendMessage({
-                    type: 'AUDIO_RECORDING_RESULT',
-                    dataUrl: reader.result
-                });
-            };
-            reader.readAsDataURL(blob);
-
-            // Clean up
-            stream.getTracks().forEach(t => {
-                log('[Offscreen] Stopping track: ' + t.label);
-                t.stop();
-            });
-        };
-
-        recorder.start();
-        log('[Offscreen] Recorder started, state: ' + recorder.state);
-        chrome.runtime.sendMessage({ type: 'RECORDING_STARTED' });
+        setupRecorder(stream);
     } catch (e) {
         log('[Offscreen] recording failed: ' + e.message);
         chrome.runtime.sendMessage({ type: 'RECORDING_ERROR', error: e.message });
