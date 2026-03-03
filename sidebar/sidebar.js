@@ -1609,13 +1609,12 @@ class SidebarUI {
                     const colorClass = groupColor ? `group-indicator-${groupColor}` : '';
 
                     return `
-                    <div class="packet-card ${colorClass}" data-id="${rowid}">
+                    <div class="packet-card ${colorClass}" data-id="${rowid}" style="cursor: pointer;">
                         <div class="packet-info">
                             <span class="packet-name">${this.escapeHtml(name)} <span class="packet-url-count">${itemCount} Items</span></span>
                             <span class="packet-meta">Created ${time}</span>
                         </div>
                         <div class="packet-card-actions">
-                            <button class="play-btn" title="Open Packet" data-id="${rowid}">⬆</button>
                             <button class="packet-delete-btn" title="Delete Packet" data-id="${rowid}">🗑</button>
                         </div>
                     </div>`;
@@ -1625,10 +1624,11 @@ class SidebarUI {
                 this.entriesContent.appendChild(addBtn);
                 this.entriesContent.insertAdjacentHTML('beforeend', `<div class="packet-list">${html}</div>`);
 
-                // Add play + delete handlers
-                this.entriesContent.querySelectorAll('.play-btn').forEach((btn, idx) => {
-                    btn.addEventListener('click', async (e) => {
-                        e.stopPropagation();
+                // Add click handler to the entire card
+                this.entriesContent.querySelectorAll('.packet-card').forEach((card, idx) => {
+                    card.addEventListener('click', async (e) => {
+                        // Don't trigger if delete button was clicked
+                        if (e.target.closest('.packet-delete-btn')) return;
 
                         // Show details immediately
                         const [rowid, name, urlsJson] = rows[idx];
@@ -1638,17 +1638,11 @@ class SidebarUI {
                             urls: JSON.parse(urlsJson)
                         });
 
-                        const originalText = btn.textContent;
-                        btn.textContent = '⏳';
                         try {
-                            await this.sendMessage({ action: 'playPacket', id: btn.dataset.id });
-                            btn.textContent = '✅';
-                            setTimeout(() => btn.textContent = originalText, 1500);
+                            await this.sendMessage({ action: 'playPacket', id: card.dataset.id });
                         } catch (error) {
                             console.error('Play failed:', error);
-                            btn.textContent = '❌';
                             this.showNotification('Failed to open packet', 'error');
-                            setTimeout(() => btn.textContent = originalText, 1500);
                         }
                     });
                 });
