@@ -17,7 +17,7 @@
       <div style="display: flex; justify-content: space-between; align-items: center;">
         <div>
           <h1>✳️ Wildcard</h1>
-          <p class="subtitle">build from your browser</p>
+          <p class="subtitle">build from the browser</p>
         </div>
         <button id="settingsBtn" class="btn-icon" style="font-size: 20px;" title="Settings">⚙️</button>
       </div>
@@ -90,10 +90,12 @@
   <div id="detailView" class="view">
     <header class="detail-header">
       <div style="display: flex; justify-content: space-between; align-items: center;">
-        <button id="backBtn" class="back-btn">← Collections</button>
+        <div>
+          <button id="backBtn" class="back-btn">← Collections</button>
+          <h2 id="detailTitle" class="detail-title"></h2>
+        </div>
         <button id="addPacketFloatingBtn" class="floating-action-btn hidden" title="Add Packet">＋</button>
       </div>
-      <h2 id="detailTitle" class="detail-title"></h2>
     </header>
 
     <!-- Schema Section -->
