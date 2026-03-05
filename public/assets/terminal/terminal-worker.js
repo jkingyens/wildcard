@@ -139,13 +139,32 @@ self.onmessage = async (e) => {
         rootMap.set("home", home);
 
         // 3. bin & ext
-        const bin = new Directory(new Map());
+        const binMap = new Map();
+        const bin = new Directory(binMap);
         bin.parent = root;
         rootMap.set("bin", bin);
 
         const ext = new Directory(extDirContents);
         ext.parent = root;
         rootMap.set("ext", ext);
+
+        // Populate bin with WASM items
+        packetData.items.forEach((item, index) => {
+            if (item.type === 'wasm' && item.data) {
+                let name = item.name || item.title || `wasm_${index}`;
+                name = name.replace(/[\/\\?%*:|"<>]/g, '_');
+                try {
+                    const binaryString = atob(item.data);
+                    const bytes = new Uint8Array(binaryString.length);
+                    for (let i = 0; i < binaryString.length; i++) {
+                        bytes[i] = binaryString.charCodeAt(i);
+                    }
+                    binMap.set(name, new File(bytes));
+                } catch (e) {
+                    console.error(`Worker: Failed to decode WASM for ${name}:`, e);
+                }
+            }
+        });
 
         const stdin = new SABStdin(inputSAB, controlSAB);
         const stdout = new ConsoleStdout((buf) => self.postMessage({ type: 'stdout', data: buf }));
