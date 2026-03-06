@@ -49,9 +49,13 @@
     </header>
     <div class="constructor-body">
       <div class="form-group">
-        <label>Gemini API Key</label>
-        <input type="password" id="geminiApiKeyInput" placeholder="Enter your Gemini API key" class="form-input"
-          style="margin-bottom:10px;">
+        <label style="display: flex; justify-content: space-between; align-items: center;">
+          Gemini API Key
+          <button id="saveApiKeyBtn" class="btn btn-primary btn-sm" style="font-size: 10px; padding: 2px 8px;">Save
+            Key</button>
+        </label>
+        <input type="password" id="geminiApiKeyInput" class="form-input" placeholder="Enter Gemini API Key"
+          style="margin-top: 6px;">
         <p class="hint">The API key is required for the "Generate Functions" feature.</p>
       </div>
       <div class="form-group" style="margin-top: 10px;">
@@ -74,14 +78,28 @@
       <div class="form-group" style="margin-top: 10px;">
         <label style="display: flex; justify-content: space-between; align-items: center;">
           System Prompt
-          <button id="restoreDefaultPromptBtn" class="btn btn-secondary btn-sm"
-            style="font-size: 10px; padding: 2px 6px;">Restore Default</button>
+          <div style="display: flex; gap: 4px;">
+            <button id="restoreDefaultPromptBtn" class="btn btn-secondary btn-sm"
+              style="font-size: 10px; padding: 2px 6px;">Restore Default</button>
+            <button id="savePromptBtn" class="btn btn-primary btn-sm" style="font-size: 10px; padding: 2px 8px;">Save
+              Prompt</button>
+          </div>
         </label>
         <textarea id="geminiSystemPromptInput" class="form-input"
           style="height: 120px; margin-top: 6px; font-family: monospace; font-size: 11px;"></textarea>
       </div>
-      <div class="constructor-actions">
-        <button id="saveSettingsBtn" class="btn btn-primary" style="flex:2;">💾 Save Settings</button>
+
+      <div class="settings-group" style="margin-top: 16px;">
+        <div class="settings-row">
+          <div class="settings-info">
+            <span class="settings-label">Network Access</span>
+            <p class="settings-hint">Temporarily disable all network requests for the entire extension.</p>
+          </div>
+          <label class="switch">
+            <input type="checkbox" id="networkAccessToggle" checked>
+            <span class="slider round"></span>
+          </label>
+        </div>
       </div>
     </div>
   </div>

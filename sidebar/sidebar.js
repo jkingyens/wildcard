@@ -284,10 +284,12 @@ class SidebarUI {
         this.fetchModelsBtn = document.getElementById('fetchModelsBtn');
         this.modelFetchStatus = document.getElementById('modelFetchStatus');
         this.settingsBackBtn = document.getElementById('settingsBackBtn');
-        this.saveSettingsBtn = document.getElementById('saveSettingsBtn');
+        this.saveApiKeyBtn = document.getElementById('saveApiKeyBtn');
+        this.savePromptBtn = document.getElementById('savePromptBtn');
         this.geminiSystemPromptInput = document.getElementById('geminiSystemPromptInput');
         this.restoreDefaultPromptBtn = document.getElementById('restoreDefaultPromptBtn');
         this.themeSelect = document.getElementById('themeSelect');
+        this.networkAccessToggle = document.getElementById('networkAccessToggle');
 
         this.terminalTabs = {}; // packetId -> tabId
 
@@ -381,6 +383,7 @@ class SidebarUI {
         this.geminiModel = '';
         this.geminiSystemPrompt = '';
         this.theme = 'light';
+        this.networkEnabled = true;
         this.activeUrl = null;
         this.isClipperManuallyCancelled = false;
         this.isAudioRecording = false;
@@ -688,12 +691,16 @@ class SidebarUI {
 
         // Settings view
         this.settingsBackBtn.addEventListener('click', () => this.showListView());
-        this.saveSettingsBtn.addEventListener('click', () => this.saveSettings());
+        this.saveApiKeyBtn.addEventListener('click', () => this.saveApiKey());
+        this.savePromptBtn.addEventListener('click', () => this.savePrompt());
         this.fetchModelsBtn.addEventListener('click', () => this.fetchAvailableModels());
         this.themeSelect.addEventListener('change', () => {
             this.theme = this.themeSelect.value;
             this.applyTheme();
+            this.saveAutoSettings();
         });
+        this.geminiModelSelect.addEventListener('change', () => this.saveAutoSettings());
+        this.networkAccessToggle.addEventListener('change', () => this.saveNetworkSettings());
         this.restoreDefaultPromptBtn.addEventListener('click', () => this.restoreDefaultPrompt());
 
         // Detail view
@@ -2908,24 +2915,40 @@ class SidebarUI {
         });
     }
 
-    async saveSettings() {
+    async saveApiKey() {
         const apiKey = this.geminiApiKeyInput.value.trim();
-        const model = this.geminiModelSelect.value;
-        const systemPrompt = this.geminiSystemPromptInput.value.trim();
-        const theme = this.themeSelect.value;
         this.geminiApiKey = apiKey;
-        this.geminiModel = model;
+        await chrome.storage.local.set({ geminiApiKey: apiKey });
+        this.showNotification('API Key saved', 'success');
+        this.checkAiFeatureAvailability();
+    }
+
+    async savePrompt() {
+        const systemPrompt = this.geminiSystemPromptInput.value.trim();
         this.geminiSystemPrompt = systemPrompt;
+        await chrome.storage.local.set({ geminiSystemPrompt: systemPrompt });
+        this.showNotification('System Prompt saved', 'success');
+    }
+
+    async saveAutoSettings() {
+        const model = this.geminiModelSelect.value;
+        const theme = this.themeSelect.value;
+        this.geminiModel = model;
         this.theme = theme;
         await chrome.storage.local.set({
-            geminiApiKey: apiKey,
             geminiModel: model,
-            geminiSystemPrompt: systemPrompt,
             theme: theme
         });
         this.applyTheme();
-        this.checkAiFeatureAvailability();
-        this.showListView();
+    }
+
+    async saveNetworkSettings() {
+        const networkEnabled = this.networkAccessToggle.checked;
+        this.networkEnabled = networkEnabled;
+        await chrome.storage.local.set({ networkEnabled: networkEnabled });
+        await this.sendMessage({ action: 'TOGGLE_NETWORK', enabled: networkEnabled });
+        this.applyOfflineMode();
+        this.showNotification(`Network ${networkEnabled ? 'enabled' : 'disabled'}`, 'info');
     }
 
     restoreDefaultPrompt() {
@@ -2935,21 +2958,32 @@ class SidebarUI {
     }
 
     async loadSettings() {
-        const data = await chrome.storage.local.get(['geminiApiKey', 'geminiModel', 'geminiSystemPrompt', 'theme']);
+        const data = await chrome.storage.local.get(['geminiApiKey', 'geminiModel', 'geminiSystemPrompt', 'theme', 'networkEnabled']);
         this.geminiApiKey = data.geminiApiKey || '';
         this.geminiModel = data.geminiModel || '';
         this.geminiSystemPrompt = data.geminiSystemPrompt || '';
         this.theme = data.theme || 'light';
+        this.networkEnabled = data.networkEnabled !== false; // Default to true
 
         // Populate UI
         this.geminiApiKeyInput.value = this.geminiApiKey;
         this.geminiSystemPromptInput.value = this.geminiSystemPrompt || DEFAULT_SYSTEM_INSTRUCTION;
         this.themeSelect.value = this.theme;
+        if (this.networkAccessToggle) this.networkAccessToggle.checked = this.networkEnabled;
         this.renderModelSelect();
         this.geminiModelSelect.value = this.geminiModel;
 
         this.applyTheme();
+        this.applyOfflineMode();
         this.checkAiFeatureAvailability();
+    }
+
+    applyOfflineMode() {
+        if (this.networkEnabled) {
+            document.body.classList.remove('offline-mode');
+        } else {
+            document.body.classList.add('offline-mode');
+        }
     }
 
     applyTheme() {
@@ -2972,7 +3006,12 @@ class SidebarUI {
 
         try {
             const url = `https://generativelanguage.googleapis.com/v1beta/models?key=${apiKey}`;
-            const response = await fetch(url);
+            const response = await fetch(url).catch(err => {
+                if (!this.networkEnabled) {
+                    throw new Error('Network access is disabled in settings');
+                }
+                throw err;
+            });
 
             if (!response.ok) {
                 const err = await response.json();
@@ -3230,6 +3269,11 @@ class SidebarUI {
                 contents: [{ parts: [{ text: prompt }] }],
                 system_instruction: { parts: [{ text: systemInstruction }] }
             })
+        }).catch(err => {
+            if (!this.networkEnabled) {
+                throw new Error('Network access is disabled in settings. Please enable it to use AI features.');
+            }
+            throw err;
         });
 
         if (!response.ok) {

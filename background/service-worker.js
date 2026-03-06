@@ -96,7 +96,45 @@ chrome.runtime.onInstalled.addListener(async () => {
     } catch (e) {
         console.error('[SW] Programmatic injection failed:', e);
     }
+
+    // Ensure network rules are in sync with settings on install/update
+    await syncNetworkStatus();
 });
+
+async function syncNetworkStatus() {
+    try {
+        const { networkEnabled } = await chrome.storage.local.get('networkEnabled');
+        const ruleId = 1;
+        const isDisabled = networkEnabled === false;
+
+        if (isDisabled) {
+            console.log('[SW-Startup] Network kill switch is ENABLED (blocking requests)');
+            await updateBadge(false);
+            await chrome.declarativeNetRequest.updateDynamicRules({
+                addRules: [{
+                    id: ruleId,
+                    priority: 100,
+                    action: { type: 'block' },
+                    condition: {
+                        urlFilter: '*',
+                        resourceTypes: ['main_frame', 'sub_frame', 'stylesheet', 'script', 'image', 'font', 'object', 'xmlhttprequest', 'ping', 'csp_report', 'media', 'websocket', 'other']
+                    }
+                }],
+                removeRuleIds: [ruleId]
+            });
+        } else {
+            console.log('[SW-Startup] Network kill switch is DISABLED (allowing requests)');
+            await chrome.declarativeNetRequest.updateDynamicRules({
+                removeRuleIds: [ruleId]
+            });
+        }
+    } catch (e) {
+        console.error('[SW] syncNetworkStatus failed:', e);
+    }
+}
+
+// Call on startup
+syncNetworkStatus();
 
 // Context menu removed as per user request. Toolbar is now the primary invocation method.
 
@@ -1354,6 +1392,40 @@ async function handleMessage(request, sender, sendResponse) {
                 }, 1000);
                 break;
             }
+            case 'TOGGLE_NETWORK': {
+                try {
+                    const enabled = request.enabled;
+                    const ruleId = 1;
+                    await updateBadge(enabled);
+                    if (!enabled) {
+                        // Block all network requests (HTTP/HTTPS)
+                        await chrome.declarativeNetRequest.updateDynamicRules({
+                            addRules: [{
+                                id: ruleId,
+                                priority: 100, // Higher priority
+                                action: { type: 'block' },
+                                condition: {
+                                    urlFilter: '*', // Match everything
+                                    // Including all possible resource types
+                                    resourceTypes: ['main_frame', 'sub_frame', 'stylesheet', 'script', 'image', 'font', 'object', 'xmlhttprequest', 'ping', 'csp_report', 'media', 'websocket', 'other']
+                                }
+                            }],
+                            removeRuleIds: [ruleId]
+                        });
+                    } else {
+                        // Allow network requests by removing the block rule
+                        await chrome.declarativeNetRequest.updateDynamicRules({
+                            removeRuleIds: [ruleId]
+                        });
+                    }
+                    console.log(`[SW] Network kill switch: ${enabled ? 'OFF' : 'ON'}`);
+                    sendResponse({ success: true });
+                } catch (err) {
+                    console.error('TOGGLE_NETWORK error:', err);
+                    sendResponse({ success: false, error: err.message });
+                }
+                break;
+            }
             default:
                 sendResponse({ success: false, error: 'Unknown action' });
         }
@@ -1456,3 +1528,18 @@ initializeSQLite().then(() => {
 }).catch(error => {
     console.error('Failed to initialize SQLite:', error);
 });
+
+async function updateBadge(networkEnabled) {
+    try {
+        if (networkEnabled === false) {
+            // Extension is OFFLINE
+            await chrome.action.setBadgeText({ text: 'OFF' });
+            await chrome.action.setBadgeBackgroundColor({ color: '#f97316' }); // Orange to match sidebar border
+        } else {
+            // Extension is ONLINE
+            await chrome.action.setBadgeText({ text: '' }); // Clear badge
+        }
+    } catch (e) {
+        console.error('[SW] updateBadge failed:', e);
+    }
+}
